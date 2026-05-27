@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: vedaapex
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        fromEnvVar: NEXT_PUBLIC_SUPABASE_URL
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        fromEnvVar: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+      - key: SUPABASE_URL
+        fromEnvVar: NEXT_PUBLIC_SUPABASE_URL
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        fromEnvVar: SUPABASE_SERVICE_ROLE_KEY
