@@ -1,11 +1,19 @@
 import type { Metadata, Viewport } from "next";
 import Providers from "./providers";
+import GuestBanner from "@/components/GuestBanner";
 import "../styles.css";
 
 export const metadata: Metadata = {
   title: "VedaApex",
   description: "Advanced AI-powered UI Generator",
   authors: [{ name: "VedaApex" }],
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
   other: {
     "twitter:card": "summary",
     "twitter:site": "@VedaApex",
@@ -24,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="antialiased">
+        <GuestBanner />
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -4,35 +4,40 @@ import { useState } from "react";
 import CanvasGenerator from "@/components/CanvasGenerator";
 import { ImageIcon, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { apiRequest } from "@/lib/api";
 
 export default function BGRemoverPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
-  const handleRemoveBG = async (prompt: string, file: File | null) => {
+  const handleRemoveBG = async (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     if (!file) return alert("Please upload an image");
     setIsGenerating(true);
 
     try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-
       const formData = new FormData();
       formData.append("file", file);
       
-      const response = await fetch("https://vedaapex-m77e.onrender.com/api/v1/media/remove-bg", {
+      const response = await apiRequest("/api/v1/media-processor/upload/image/background-removal", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
         body: formData,
       });
 
-      if (!response.ok) throw new Error("BG Removal failed");
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        const outputUrl = data.result || data.url || data.output;
+        if (outputUrl) {
+          setResult(outputUrl);
+          return;
+        }
+      }
 
       const blob = await response.blob();
       setResult(URL.createObjectURL(blob));
     } catch (error) {
-      console.error(error);
-      alert("Error removing background");
+      console.error("BG removal failed:", error);
+      throw error; // Propagate error so CanvasGenerator can show the error screen and retry button
     } finally {
       setIsGenerating(false);
     }

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import CanvasGenerator from "@/components/CanvasGenerator";
 import { Download, Share2, ImageIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { apiRequest } from "@/lib/api";
 
 type Generation = {
   id: string;
@@ -11,6 +12,44 @@ type Generation = {
   prompt: string;
   timestamp: number;
 };
+
+function extractImageUrl(data: any): string | null {
+  if (!data) return null;
+  if (typeof data === "string") return data.trim() || null;
+  if (Array.isArray(data)) {
+    const first = data[0];
+    return typeof first === "string" ? first.trim() || null : first?.url ?? first?.result ?? null;
+  }
+
+  return (
+    data.result ||
+    data.url ||
+    data.image_url ||
+    data.imageUrl ||
+    data.output ||
+    null
+  );
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to convert generated image to a data URL"));
+      }
+    };
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Failed to convert generated image to a data URL"));
+    };
+
+    reader.readAsDataURL(blob);
+  });
+}
 
 export default function ImageGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -40,42 +79,57 @@ export default function ImageGenerator() {
     localStorage.setItem("image_generations", JSON.stringify(newHistory));
   };
 
-  const handleGenerate = async (prompt: string) => {
+  const handleGenerate = async (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     if (!prompt.trim()) return;
     setIsGenerating(true);
     
     try {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token;
-
-        const response = await fetch("https://vedaapex-m77e.onrender.com/api/v1/generate", {
+        const response = await apiRequest("/api/v1/ai/generate/image", {
             method: "POST",
-            headers: { 
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}` 
-            },
-            body: JSON.stringify({ tool_type: "image-generator", prompt }),
+            timeoutMs: 60000,
+            body: JSON.stringify({ 
+              prompt,
+              aspect_ratio: aspectRatio,
+              tier: 1,
+              provider: "auto" 
+            }),
         });
+
+        const contentType = response.headers.get("content-type") || "";
+        let imageUrl: string | null = null;
+
+        if (contentType.includes("application/json") || contentType.includes("+json")) {
+          const data = await response.json();
+          imageUrl = extractImageUrl(data);
+        } else if (contentType.startsWith("image/")) {
+          const blob = await response.blob();
+          imageUrl = await blobToDataUrl(blob);
+        } else {
+          const text = await response.text();
+          try {
+            imageUrl = extractImageUrl(JSON.parse(text));
+          } catch {
+            imageUrl = text.trim() || null;
+          }
+        }
+
+        if (!imageUrl) {
+          throw new Error("No image URL returned from generation response");
+        }
         
-        if (!response.ok) throw new Error("Image generation failed");
-        
-        // Mock result for verification as the backend is a stub
-        setTimeout(() => {
-            const url = `https://picsum.photos/seed/${Math.random()}/800/800`;
-            setGeneratedImage(url);
-            saveToHistory(url, prompt);
-            setIsGenerating(false);
-        }, 2000);
+        setGeneratedImage(imageUrl);
+        saveToHistory(imageUrl, prompt);
     } catch (error) {
-        console.error(error);
-        alert("Generation Error");
+        console.error("Image generation failed:", error);
+        throw error; // Propagate error so CanvasGenerator can show the error screen and retry button
+    } finally {
         setIsGenerating(false);
     }
   };
 
   return (
     <CanvasGenerator
-      title="VedaS Vision"
+      title="ApexVision"
       subtitle="AI IMAGE GENERATOR"
       description="Describe what you want to see..."
       onGenerate={handleGenerate}

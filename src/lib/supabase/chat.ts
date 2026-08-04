@@ -1,100 +1,73 @@
-import { supabase } from "@/integrations/supabase/client";
 import { Chat, Folder } from "@/types";
 
-export const saveChatToSupabase = async (chat: Chat) => {
-  const { data, error } = await (supabase as any)
-    .from("chats")
-    .upsert([
-      {
-        id: chat.id,
-        name: chat.name,
-        messages: chat.messages,
-        folder_id: chat.folderId,
-        created_at: new Date(chat.createdAt || Date.now()).toISOString(),
-      },
-    ]);
+const CHATS_KEY = "apex_chats_v2";
+const FOLDERS_KEY = "apex_folders";
 
-  if (error) {
-    console.error("Error saving chat:", error);
-    throw error;
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function readJson<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
   }
-  return data;
+}
+
+function writeJson<T>(key: string, value: T): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+// ── Chats ─────────────────────────────────────────────────────────────────
+
+export const saveChatToSupabase = async (chat: Chat) => {
+  const chats = readJson<Chat[]>(CHATS_KEY, []);
+  const idx = chats.findIndex((c) => c.id === chat.id);
+  if (idx >= 0) {
+    chats[idx] = chat;
+  } else {
+    chats.unshift(chat);
+  }
+  writeJson(CHATS_KEY, chats);
+  return chat;
 };
 
-export const getChatsFromSupabase = async () => {
-  const { data, error } = await (supabase as any)
-    .from("chats")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("Error fetching chats:", error);
-    throw error;
-  }
-  
-  // Map snake_case database fields back to camelCase properties
-  return (data || []).map((dbChat: any) => ({
-    id: dbChat.id,
-    name: dbChat.name,
-    messages: dbChat.messages,
-    folderId: dbChat.folder_id,
-    createdAt: dbChat.created_at ? new Date(dbChat.created_at).getTime() : Date.now(),
-  }));
+export const getChatsFromSupabase = async (): Promise<Chat[]> => {
+  return readJson<Chat[]>(CHATS_KEY, []);
 };
 
 export const deleteChatFromSupabase = async (chatId: string) => {
-  const { error } = await (supabase as any)
-    .from("chats")
-    .delete()
-    .eq("id", chatId);
-
-  if (error) {
-    console.error("Error deleting chat:", error);
-    throw error;
-  }
+  const chats = readJson<Chat[]>(CHATS_KEY, []);
+  writeJson(
+    CHATS_KEY,
+    chats.filter((c) => c.id !== chatId),
+  );
 };
 
-export const saveFolderToSupabase = async (folder: Folder) => {
-  const { data, error } = await (supabase as any)
-    .from("folders")
-    .upsert([
-      {
-        id: folder.id,
-        name: folder.name,
-      },
-    ]);
+// ── Folders ───────────────────────────────────────────────────────────────
 
-  if (error) {
-    console.error("Error saving folder:", error);
-    throw error;
+export const saveFolderToSupabase = async (folder: Folder) => {
+  const folders = readJson<Folder[]>(FOLDERS_KEY, []);
+  const idx = folders.findIndex((f) => f.id === folder.id);
+  if (idx >= 0) {
+    folders[idx] = folder;
+  } else {
+    folders.push(folder);
   }
-  return data;
+  writeJson(FOLDERS_KEY, folders);
+  return folder;
 };
 
 export const deleteFolderFromSupabase = async (folderId: string) => {
-  const { error } = await (supabase as any)
-    .from("folders")
-    .delete()
-    .eq("id", folderId);
-
-  if (error) {
-    console.error("Error deleting folder:", error);
-    throw error;
-  }
+  const folders = readJson<Folder[]>(FOLDERS_KEY, []);
+  writeJson(
+    FOLDERS_KEY,
+    folders.filter((f) => f.id !== folderId),
+  );
 };
 
-export const getFoldersFromSupabase = async () => {
-  const { data, error } = await (supabase as any)
-    .from("folders")
-    .select("*");
-
-  if (error) {
-    console.error("Error fetching folders:", error);
-    throw error;
-  }
-  
-  return (data || []).map((dbFolder: any) => ({
-    id: dbFolder.id,
-    name: dbFolder.name,
-  }));
+export const getFoldersFromSupabase = async (): Promise<Folder[]> => {
+  return readJson<Folder[]>(FOLDERS_KEY, []);
 };

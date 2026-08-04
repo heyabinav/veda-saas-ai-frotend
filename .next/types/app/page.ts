@@ -1,4 +1,4 @@
-// File: C:\Users\heyhi\Downloads\pixel-perfect-ui-main\pixel-perfect-ui-main\src\app\page.tsx
+// File: D:\pixel-perfect-ui-main\pixel-perfect-ui-main\src\app\page.tsx
 import * as entry from '../../../src/app/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

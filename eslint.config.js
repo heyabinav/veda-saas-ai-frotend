@@ -14,6 +14,9 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  {
+    ignores: [".next/**", "backend/app/__pycache__/**", "**/*.pyc"],
+  },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
     rules: {

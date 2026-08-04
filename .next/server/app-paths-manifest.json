@@ -1,8 +1,7 @@
 {
+  "/icon.svg/route": "app/icon.svg/route.js",
   "/api/chat/route": "app/api/chat/route.js",
   "/page": "app/page.js",
-  "/c/[id]/page": "app/c/[id]/page.js",
-  "/upgrade/page": "app/upgrade/page.js",
-  "/explore-vedas/page": "app/explore-vedas/page.js",
-  "/image-generator/page": "app/image-generator/page.js"
+  "/login/page": "app/login/page.js",
+  "/c/[id]/page": "app/c/[id]/page.js"
 }

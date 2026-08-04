@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import CanvasGenerator from "@/components/CanvasGenerator";
+import FileUploadDropzone from "@/components/ui/FileUploadDropzone";
 import { Stage, Layer, Text } from "react-konva";
 import { supabase } from "@/integrations/supabase/client";
+import { apiRequest } from "@/lib/api";
 
 export default function WeddingCardGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -18,44 +20,36 @@ export default function WeddingCardGenerator() {
       { id: "bride", text: "Bride", x: 50, y: 150 },
       { id: "date", text: "Wedding Date", x: 50, y: 200 },
   ]);
-  const fileRef = useRef<HTMLInputElement>(null);
-
   const handleGenerate = async () => {
     if (!groom.trim() || !bride.trim()) return;
     setIsGenerating(true);
     
     try {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token;
-
-        const response = await fetch("https://vedaapex-m77e.onrender.com/api/v1/generate", {
+        const response = await apiRequest("/api/v1/ai/generate/wedding-card", {
             method: "POST",
-            headers: { 
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}` 
-            },
             body: JSON.stringify({ 
-                tool_type: "image-generator", 
-                prompt: `Wedding background for ${groom} and ${bride} at ${venue} on ${date}. Style: ${prompt}` 
+                groom_name: groom,
+                bride_name: bride,
+                date: date,
+                venue: venue,
+                theme_prompt: prompt || undefined,
+                tier: 1
             }),
         });
         
-        if (!response.ok) throw new Error("Image generation failed");
+        const data = await response.json();
+        console.log("Wedding Card API result:", data);
         
-        // Assume backend returns { status: "PENDING", task_id: "..." }
-        // For now, we simulate success with a placeholder background
-        setTimeout(() => {
-            setElements([
-                { id: "groom", text: `${groom} weds`, x: 100, y: 100 },
-                { id: "bride", text: bride, x: 100, y: 150 },
-                { id: "date", text: `Date: ${date}`, x: 100, y: 200 },
-                { id: "venue", text: `Venue: ${venue}`, x: 100, y: 250 },
-            ]);
-            setIsGenerating(false);
-        }, 2000);
-    } catch (error) {
+        setElements([
+            { id: "groom", text: `${groom} weds`, x: 100, y: 100 },
+            { id: "bride", text: bride, x: 100, y: 150 },
+            { id: "date", text: `Date: ${date}`, x: 100, y: 200 },
+            { id: "venue", text: `Venue: ${venue}`, x: 100, y: 250 },
+        ]);
+    } catch (error: any) {
         console.error(error);
-        alert("Error generating image. Check console.");
+        alert("Error generating card: " + (error.message || error));
+    } finally {
         setIsGenerating(false);
     }
   };
@@ -70,10 +64,12 @@ export default function WeddingCardGenerator() {
             <input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Venue" className="p-3 border rounded-xl" />
             <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="AI Design Prompt (e.g., Floral, Gold theme)" className="p-3 border rounded-xl h-24" />
             
-            <input type="file" ref={fileRef} className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-            <button onClick={() => fileRef.current?.click()} className="p-3 border-2 border-dashed rounded-xl text-gray-500">
-                {file ? file.name : "Attach Inspiration File"}
-            </button>
+            <FileUploadDropzone
+              onFileSelect={(f) => setFile(f)}
+              onFileRemove={() => setFile(null)}
+              file={file}
+              label="Attach Inspiration File"
+            />
 
             <button onClick={handleGenerate} className="bg-foreground text-white py-3 rounded-xl font-medium">
                 {isGenerating ? "Generating..." : "Generate Design"}

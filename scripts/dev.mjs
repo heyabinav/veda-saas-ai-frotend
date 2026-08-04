@@ -14,9 +14,21 @@ try {
 }
 
 const nextBin = path.join(projectRoot, "node_modules", "next", "dist", "bin", "next");
+const forwardedArgs = process.argv.slice(2);
+const devArgs =
+  forwardedArgs.length > 0
+    ? ["dev", ...forwardedArgs]
+    : [
+        "dev",
+        "--hostname",
+        "127.0.0.1",
+        "--port",
+        process.env.PORT ?? "3000",
+      ];
+
 const child = spawn(
   process.execPath,
-  [nextBin, "dev", "-p", process.env.PORT ?? "3003"],
+  [nextBin, ...devArgs],
   {
     cwd: projectRoot,
     stdio: "inherit",

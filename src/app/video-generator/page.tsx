@@ -39,7 +39,7 @@ export default function VideoGenerator() {
     localStorage.setItem("video_generations", JSON.stringify(newHistory));
   };
 
-  const handleGenerate = (prompt: string) => {
+  const handleGenerate = (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     if (!prompt.trim()) return;
     setIsGenerating(true);
     setTimeout(() => {
@@ -47,12 +47,13 @@ export default function VideoGenerator() {
       setGeneratedVideo(url);
       saveToHistory(url, prompt);
       setIsGenerating(false);
+      console.log(`Generated video with aspect ratio: ${aspectRatio}, shape: ${shape}`);
     }, 3000);
   };
 
   return (
     <CanvasGenerator
-      title="VedaS Motion"
+      title="ApexMotion"
       subtitle="AI VIDEO GENERATOR"
       description="Describe the motion, camera movement, and scene..."
       onGenerate={handleGenerate}

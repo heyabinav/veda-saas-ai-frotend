@@ -7,7 +7,7 @@ export default function DocsGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [content, setContent] = useState<string | null>(null);
 
-  const handleGenerate = (prompt: string) => {
+  const handleGenerate = (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     setIsGenerating(true);
     setTimeout(() => {
       setContent(`Generated Doc Content for: ${prompt}\n\n1. Introduction\n2. Key Findings\n3. Conclusion`);

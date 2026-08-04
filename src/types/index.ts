@@ -1,6 +1,11 @@
 export type Message = {
   role: "user" | "assistant";
   text: string;
+  file?: {
+    name: string;
+    type: string;
+    dataUrl: string;
+  };
 };
 
 export type Chat = {

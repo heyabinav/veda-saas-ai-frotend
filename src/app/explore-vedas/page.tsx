@@ -14,7 +14,6 @@ import {
   ArrowUpRight,
   FileText,
   Box,
-  Code,
   Trash2,
 } from "lucide-react";
 
@@ -24,7 +23,7 @@ export default function ExploreVedas() {
 
   const tools = [
     {
-      title: "VedaS Vision",
+      title: "ApexVision",
       subtitle: "AI IMAGE GENERATOR",
       description: "Generate stunning high-fidelity images from text prompts using advanced AI models.",
       icon: ImageIcon,
@@ -64,7 +63,7 @@ export default function ExploreVedas() {
       border: "hover:border-emerald-500/20",
     },
     {
-      title: "VedaS Motion",
+      title: "ApexMotion",
       subtitle: "AI VIDEO GENERATOR",
       description: "Transform your concepts into high-quality cinematic videos with fluid motion and AI consistency.",
       icon: Video,
@@ -82,16 +81,6 @@ export default function ExploreVedas() {
       accent: "text-orange-600",
       bg: "bg-orange-500/5",
       border: "hover:border-orange-500/20",
-    },
-    {
-      title: "KodiXapex",
-      subtitle: "AI CODE GENERATOR",
-      description: "Generate, preview, and execute code snippets directly within the browser.",
-      icon: Code,
-      href: "/kodixapex",
-      accent: "text-emerald-600",
-      bg: "bg-emerald-500/5",
-      border: "hover:border-emerald-500/20",
     },
     {
       title: "VedaS Prompt Master",

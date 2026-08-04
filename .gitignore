@@ -20,6 +20,25 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+tmp-*.*
+
+# Next.js build output
+.next/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Temp log files
+codex-dev.log
+codex-test.log
+
+# NPM cache
+.npm-cache/
+
+# Python cache
+__pycache__/
+*.pyc
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

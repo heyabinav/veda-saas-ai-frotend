@@ -7,7 +7,7 @@ export default function AdsGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copy, setCopy] = useState<string | null>(null);
 
-  const handleGenerate = (prompt: string) => {
+  const handleGenerate = (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     setIsGenerating(true);
     setTimeout(() => {
       setCopy(`🚀 Boost your sales with ${prompt}! Limited time offer - 50% OFF!`);

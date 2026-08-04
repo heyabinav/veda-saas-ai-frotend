@@ -7,7 +7,7 @@ export default function LogoGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
 
-  const handleGenerate = (prompt: string) => {
+  const handleGenerate = (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     setIsGenerating(true);
     setTimeout(() => {
       setUrl("https://picsum.photos/seed/logo/400/400");

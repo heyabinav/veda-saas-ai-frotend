@@ -21,7 +21,7 @@ const plans = [
       "Image Enhancer",
       "Wedding Card Generator",
       "Excel & Word File Tools",
-      "KodiXapex Access",
+      "APEXCODE Access",
       "Studies Model"
     ],
   },
@@ -49,7 +49,7 @@ const plans = [
       "Home Map Generator",
       "Live Screen Share",
       "Home Design Selector",
-      "Free KodiXapex CLI",
+      "Free APEXCODE CLI",
       "Home Map Generator (Coming Soon)"
     ],
   },
@@ -89,7 +89,7 @@ export default function UpgradePage() {
             const { data } = await supabase.auth.getSession();
             const token = data.session?.access_token;
 
-            const res = await fetch("https://vedaapex-m77e.onrender.com/api/v1/payments/verify", {
+            const res = await fetch("https://vedaapex-vedaapex.hf.space/api/v1/payments/verify", {
                 method: "POST",
                 headers: { 
                     "Content-Type": "application/json",
@@ -121,10 +121,10 @@ export default function UpgradePage() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-6xl mx-auto">
-        <Link href="/" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8">
-            <ArrowLeft className="h-4 w-4" /> Go Back
+    <div className="min-h-screen w-full bg-background">
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        <Link href="/" className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8 w-fit">
+          <ArrowLeft className="h-4 w-4" /> Go Back
         </Link>
         <h1 className="text-4xl font-bold text-center mb-12">Choose your plan</h1>
         <div className="grid md:grid-cols-3 gap-8">

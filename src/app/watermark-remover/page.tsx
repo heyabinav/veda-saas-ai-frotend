@@ -4,35 +4,56 @@ import { useState } from "react";
 import CanvasGenerator from "@/components/CanvasGenerator";
 import { Trash2, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { apiRequest } from "@/lib/api";
 
 export default function EraserPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
-  const handleErase = async (prompt: string, file: File | null) => {
+  const handleErase = async (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     if (!file) return alert("Please upload a file");
     setIsGenerating(true);
 
     try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
+      const isVideo = file.type.startsWith("video/");
+      const uploadEndpoint = isVideo
+        ? "/api/v1/media/upload/video"
+        : "/api/v1/media/upload/image";
 
-      const formData = new FormData();
-      formData.append("file", file);
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
       
-      const response = await fetch("https://vedaapex-m77e.onrender.com/api/v1/media/watermark/remove", {
+      const uploadResponse = await apiRequest(uploadEndpoint, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: formData,
+        body: uploadFormData,
+      });
+      
+      const uploadData = await uploadResponse.json();
+      const filename = uploadData.filename || uploadData.name || file.name;
+
+      const removeEndpoint = isVideo
+        ? `/api/v1/media/remove-watermark/video?filename=${encodeURIComponent(filename)}&mask_filename=${encodeURIComponent(filename)}&algorithm=telea`
+        : `/api/v1/media/remove-watermark/image?filename=${encodeURIComponent(filename)}&mask_filename=${encodeURIComponent(filename)}&algorithm=telea`;
+        
+      const response = await apiRequest(removeEndpoint, {
+        method: "POST",
       });
 
-      if (!response.ok) throw new Error("Eraser failed");
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        const outputUrl = data.result || data.url || data.output;
+        if (outputUrl) {
+          setResult(outputUrl);
+          return;
+        }
+      }
 
       const blob = await response.blob();
       setResult(URL.createObjectURL(blob));
     } catch (error) {
-      console.error(error);
-      alert("Error removing watermark");
+      console.error("Watermark removal failed:", error);
+      throw error; // Propagate error so CanvasGenerator can show the error screen and retry button
     } finally {
       setIsGenerating(false);
     }

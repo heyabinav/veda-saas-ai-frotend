@@ -4,36 +4,45 @@ import { useState } from "react";
 import CanvasGenerator from "@/components/CanvasGenerator";
 import { Sparkles, Download, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { apiRequest } from "@/lib/api";
 
 export default function EnhancerPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
-  const handleEnhance = async (prompt: string, file: File | null) => {
+  const handleEnhance = async (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     if (!file) return alert("Please upload a file");
     setIsGenerating(true);
 
     try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
+      const isVideo = file.type.startsWith("video/");
+      const endpoint = isVideo 
+        ? "/api/v1/media-processor/upload/video/enhance"
+        : "/api/v1/media-processor/upload/image/enhance";
 
-      // Real integration logic
       const formData = new FormData();
       formData.append("file", file);
       
-      const response = await fetch("https://vedaapex-m77e.onrender.com/api/v1/media/enhance/video", {
+      const response = await apiRequest(endpoint, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
         body: formData,
       });
 
-      if (!response.ok) throw new Error("Enhancement failed");
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        const outputUrl = data.result || data.url || data.output;
+        if (outputUrl) {
+          setResult(outputUrl);
+          return;
+        }
+      }
 
       const blob = await response.blob();
       setResult(URL.createObjectURL(blob));
     } catch (error) {
-      console.error(error);
-      alert("Error during enhancement");
+      console.error("Enhancement failed:", error);
+      throw error; // Propagate error so CanvasGenerator can show the error screen and retry button
     } finally {
       setIsGenerating(false);
     }

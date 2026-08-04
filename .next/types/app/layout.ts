@@ -1,4 +1,4 @@
-// File: C:\Users\heyhi\Downloads\pixel-perfect-ui-main\pixel-perfect-ui-main\src\app\layout.tsx
+// File: D:\pixel-perfect-ui-main\pixel-perfect-ui-main\src\app\layout.tsx
 import * as entry from '../../../src/app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

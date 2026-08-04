@@ -1,4 +1,4 @@
-// File: C:\Users\heyhi\Downloads\pixel-perfect-ui-main\pixel-perfect-ui-main\src\app\api\chat\route.ts
+// File: D:\pixel-perfect-ui-main\pixel-perfect-ui-main\src\app\api\chat\route.ts
 import * as entry from '../../../../../src/app/api/chat/route.js'
 import type { NextRequest } from 'next/server.js'
 

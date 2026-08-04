@@ -23,7 +23,23 @@ export default function ModelGenerator() {
     setFile(null);
   };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: {'image/*': []} });
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "image/*": [],
+      "video/*": [],
+      "application/pdf": [],
+      "application/msword": [],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [],
+      "application/vnd.ms-excel": [],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [],
+      "application/vnd.ms-powerpoint": [],
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation": [],
+      "text/plain": [],
+      "text/csv": [],
+      "application/rtf": [],
+    },
+  });
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -58,11 +74,11 @@ export default function ModelGenerator() {
     <div className="h-screen w-full bg-white flex">
       <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
-      <main className="flex-1 flex flex-col p-8 bg-[#F9F9F9] overflow-y-auto">
+      <main className="flex-1 flex flex-col p-4 lg:p-8 bg-[#F9F9F9] overflow-y-auto">
         <h1 className="text-2xl font-bold mb-6">Vedaa Pex 3D Generator</h1>
         
-        <div className="flex gap-6 h-[500px]">
-          <div className="bg-white rounded-2xl border border-black/10 p-4 flex-1 shadow-sm relative">
+        <div className="flex flex-col lg:flex-row gap-6 min-h-[500px]">
+          <div className="bg-white rounded-2xl border border-black/10 p-4 flex-1 shadow-sm relative min-h-[300px]">
              <div ref={mountRef} className="w-full h-full rounded-xl overflow-hidden bg-black/[0.02]" />
              <div className="absolute top-6 right-6 flex flex-col gap-2">
                 <button className="p-2 bg-white rounded-lg shadow-sm border border-black/10"><Palette className="h-5 w-5"/></button>
@@ -71,7 +87,7 @@ export default function ModelGenerator() {
              </div>
           </div>
           
-          <div className="w-[350px] space-y-6">
+          <div className="w-full lg:w-[350px] space-y-6">
              <div className="bg-white rounded-2xl border border-black/10 p-6 shadow-sm space-y-4">
                 <label className="block text-sm font-medium text-foreground/70">Image to 3D</label>
                 <div {...getRootProps()} className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer hover:bg-black/5 transition-colors ${isDragActive ? 'border-blue-500 bg-blue-50' : ''}`}>

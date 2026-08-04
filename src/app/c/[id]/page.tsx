@@ -5,6 +5,6 @@ import { useParams } from "next/navigation";
 
 export default function ChatPage() {
   const params = useParams();
-  const id = params.id as string;
+  const id = typeof params?.id === "string" ? params.id : undefined;
   return <ChatInterface initialChatId={id} />;
 }

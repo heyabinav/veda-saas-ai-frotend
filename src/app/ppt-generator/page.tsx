@@ -96,9 +96,9 @@ export default function PPTGenerator() {
           </div>
         </div>
 
-        <div className="flex flex-1 gap-6 px-8 pb-8 overflow-hidden">
+        <div className="flex flex-1 flex-col lg:flex-row gap-6 px-4 lg:px-8 pb-8 overflow-y-auto lg:overflow-hidden">
           {/* Left Column - Controls */}
-          <div className="flex w-[350px] flex-col gap-6 overflow-y-auto">
+          <div className="flex w-full lg:w-[350px] flex-col gap-6 shrink-0">
             <div className="rounded-2xl border border-black/5 bg-white p-5 shadow-sm">
               <label className="mb-2 block text-sm font-medium text-foreground/70">Presentation Topic</label>
               <textarea
@@ -120,12 +120,12 @@ export default function PPTGenerator() {
           </div>
 
           {/* Right Column - Preview Area */}
-          <div className="flex-1 rounded-3xl border border-black/5 bg-white shadow-sm overflow-hidden flex flex-col">
+          <div className="flex-1 rounded-3xl border border-black/5 bg-white shadow-sm overflow-hidden flex flex-col min-h-[400px]">
              {generatedPPT ? (
-                <div className="flex-1 p-8 flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
-                   <div className="w-full max-w-lg aspect-video bg-white rounded-xl shadow-xl flex flex-col items-center justify-center p-8 border border-black/10">
-                      <h2 className="text-3xl font-bold text-foreground mb-4">{topic}</h2>
-                      <div className="text-sm text-foreground/60">Professional Theme</div>
+                <div className="flex-1 p-4 lg:p-8 flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
+                   <div className="w-full max-w-lg aspect-video bg-white rounded-xl shadow-xl flex flex-col items-center justify-center p-4 lg:p-8 border border-black/10 text-center">
+                      <h2 className="text-xl lg:text-3xl font-bold text-foreground mb-4">{topic}</h2>
+                      <div className="text-xs lg:text-sm text-foreground/60">Professional Theme</div>
                    </div>
                    <button className="mt-8 flex items-center gap-2 bg-foreground text-white px-6 py-2 rounded-lg hover:opacity-90">
                       <Download className="h-4 w-4" /> Download .pptx

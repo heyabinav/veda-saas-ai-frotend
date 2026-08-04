@@ -7,7 +7,7 @@ export default function PromptGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
 
-  const handleGenerate = (prompt: string) => {
+  const handleGenerate = (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     setIsGenerating(true);
     setTimeout(() => {
       setEnhancedPrompt(`Detailed and highly professional prompt for: "${prompt}". 

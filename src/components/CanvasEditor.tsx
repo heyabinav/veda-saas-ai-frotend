@@ -26,7 +26,23 @@ export default function CanvasEditor({ imageUrl }: CanvasEditorProps) {
     reader.readAsDataURL(file);
   };
 
-  const { getRootProps, getInputProps } = useDropzone({ onDrop });
+  const { getRootProps, getInputProps } = useDropzone({
+    onDrop,
+    accept: {
+      "image/*": [],
+      "video/*": [],
+      "application/pdf": [],
+      "application/msword": [],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [],
+      "application/vnd.ms-excel": [],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [],
+      "application/vnd.ms-powerpoint": [],
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation": [],
+      "text/plain": [],
+      "text/csv": [],
+      "application/rtf": [],
+    },
+  });
 
   return (
     <div {...getRootProps()} className="flex flex-1 flex-col items-center">

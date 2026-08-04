@@ -7,7 +7,7 @@ export default function ExcelGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [data, setData] = useState<string[][] | null>(null);
 
-  const handleGenerate = (prompt: string) => {
+  const handleGenerate = (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     setIsGenerating(true);
     setTimeout(() => {
       setData([
