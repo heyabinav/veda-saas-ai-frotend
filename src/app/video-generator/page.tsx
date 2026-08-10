@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import CanvasGenerator from "@/components/CanvasGenerator";
 import { Download, Share2, Video } from "lucide-react";
+import { apiRequest } from "@/lib/api";
 
 type VideoGeneration = {
   id: string;
@@ -11,10 +12,32 @@ type VideoGeneration = {
   timestamp: number;
 };
 
+function extractVideoUrl(data: any): string | null {
+  if (!data) return null;
+  if (typeof data === "string") return data.trim() || null;
+  if (Array.isArray(data)) {
+    const first = data[0];
+    return typeof first === "string" ? first.trim() || null : first?.url ?? first?.result ?? null;
+  }
+  return (
+    data.result ||
+    data.url ||
+    data.video_url ||
+    data.videoUrl ||
+    data.output ||
+    null
+  );
+}
+
+function blobToObjectUrl(blob: Blob): string {
+  return URL.createObjectURL(blob);
+}
+
 export default function VideoGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
   const [history, setHistory] = useState<VideoGeneration[]>([]);
+  const [generationStatus, setGenerationStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("video_generations");
@@ -39,16 +62,83 @@ export default function VideoGenerator() {
     localStorage.setItem("video_generations", JSON.stringify(newHistory));
   };
 
-  const handleGenerate = (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
+  const handleGenerate = async (prompt: string, file: File | null, aspectRatio: string, shape: string) => {
     if (!prompt.trim()) return;
     setIsGenerating(true);
-    setTimeout(() => {
-      const url = "https://assets.mixkit.co/videos/preview/mixkit-abstract-form-of-blue-and-purple-ink-in-water-39850-large.mp4";
-      setGeneratedVideo(url);
-      saveToHistory(url, prompt);
+    setGenerationStatus(null);
+
+    // The backend generates video synchronously, which can take 2+ minutes.
+    // Wait up to ~5 minutes per attempt (must stay just above the proxy's
+    // 290s window), and auto-retry on 504/timeout so a cold start or a busy
+    // server doesn't kill the generation.
+    const MAX_ATTEMPTS = 3;
+
+    try {
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          const response = await apiRequest("/api/v1/ai/generate/video", {
+            method: "POST",
+            timeoutMs: 295000,
+            body: JSON.stringify({
+              prompt,
+              aspect_ratio: aspectRatio,
+              tier: 1,
+              provider: "auto",
+            }),
+          });
+
+          const contentType = response.headers.get("content-type") || "";
+          let videoUrl: string | null = null;
+
+          if (contentType.includes("application/json") || contentType.includes("+json")) {
+            const data = await response.json();
+            videoUrl = extractVideoUrl(data);
+          } else if (contentType.startsWith("video/")) {
+            const blob = await response.blob();
+            videoUrl = blobToObjectUrl(blob);
+          } else {
+            const text = await response.text();
+            try {
+              videoUrl = extractVideoUrl(JSON.parse(text));
+            } catch {
+              videoUrl = text.trim() || null;
+            }
+          }
+
+          if (!videoUrl) {
+            throw new Error("No video URL returned from generation response");
+          }
+
+          setGeneratedVideo(videoUrl);
+          saveToHistory(videoUrl, prompt);
+          return;
+        } catch (err: any) {
+          const message = err?.message ?? "";
+          const retriable =
+            (typeof err?.status === "number" && err.status >= 500) ||
+            message.includes("timed out") ||
+            err?.name === "AbortError";
+
+          if (!retriable || attempt >= MAX_ATTEMPTS) {
+            if (attempt >= MAX_ATTEMPTS && retriable) {
+              throw new Error(
+                "Video generation timed out after multiple attempts. The hosting gateway (Render) kills requests that take longer than its limit — raise the 'Request Timeout' to 300s for the backend service in the Render dashboard, or try again later."
+              );
+            }
+            throw err;
+          }
+
+          const delay = Math.min(2000 * 2 ** (attempt - 1), 8000);
+          setGenerationStatus(
+            `Attempt ${attempt} of ${MAX_ATTEMPTS} timed out. Retrying in ${Math.round(delay / 1000)}s — keeping this tab open...`
+          );
+          console.warn(`[Video Generation] Attempt ${attempt} timed out, retrying in ${delay / 1000}s...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    } finally {
       setIsGenerating(false);
-      console.log(`Generated video with aspect ratio: ${aspectRatio}, shape: ${shape}`);
-    }, 3000);
+    }
   };
 
   return (
@@ -59,6 +149,11 @@ export default function VideoGenerator() {
       onGenerate={handleGenerate}
       isGenerating={isGenerating}
       history={history}
+      loadingTitle="Generating your video"
+      loadingHint={
+        generationStatus ??
+        "This can take a few minutes. Please keep this tab open — generation continues automatically."
+      }
     >
       {generatedVideo ? (
         <div className="relative group w-full max-w-4xl aspect-video rounded-2xl overflow-hidden shadow-2xl">

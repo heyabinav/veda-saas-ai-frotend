@@ -11,9 +11,9 @@ export default function FilesPage() {
     <div className="h-screen w-full">
       <div className="flex h-full w-full overflow-hidden bg-white">
         <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
-        <main className="flex-1 p-8 overflow-y-auto">
-          <div className="flex items-center justify-between mb-8">
-            <h1 className="text-2xl font-bold">Uploaded Files</h1>
+        <main className="flex-1 p-4 sm:p-8 overflow-y-auto">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
+            <h1 className="text-2xl font-bold break-words">Uploaded Files</h1>
             <button className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-md text-sm">
               <FileUp className="h-4 w-4" />
               Upload

@@ -1,11 +1,18 @@
 export type Message = {
   role: "user" | "assistant";
   text: string;
+  timestamp?: number;
+  durationMs?: number;
   file?: {
     name: string;
     type: string;
     dataUrl: string;
   };
+  files?: {
+    name: string;
+    type: string;
+    dataUrl: string;
+  }[];
 };
 
 export type Chat = {

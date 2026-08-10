@@ -1,19 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
   ChevronRight,
   FilePlus2,
+  ImagePlus,
   KeyRound,
   Play,
   Rocket,
   Settings2,
   Sparkles,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SectionHeading } from "./ui";
+import { addCustomConnector } from "@/config/customConnectors";
 
 const steps = [
   { id: 0, label: "Create", icon: FilePlus2 },
@@ -23,20 +26,104 @@ const steps = [
   { id: 4, label: "Publish", icon: Rocket },
 ] as const;
 
+const METHODS = ["OAuth 2.0", "MCP"] as const;
+type Method = (typeof METHODS)[number];
+
 const scopes = [
   { id: "orders:read", label: "Read orders", checked: true },
   { id: "orders:write", label: "Create & edit orders", checked: true },
   { id: "customers:read", label: "Read customers", checked: false },
 ];
 
+function LogoUploader({
+  logo,
+  onChange,
+}: {
+  logo: string | null;
+  onChange: (logo: string | null) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div>
+      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+        Logo <span className="font-normal text-slate-400">(optional)</span>
+      </label>
+      <div className="mt-1.5 flex items-center gap-3">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-white dark:border-white/15 dark:bg-black/30">
+          {logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logo} alt="Connector logo" className="h-full w-full object-contain" />
+          ) : (
+            <ImagePlus className="h-5 w-5 text-slate-400" />
+          )}
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () =>
+              onChange(typeof reader.result === "string" ? reader.result : null);
+            reader.readAsDataURL(file);
+            e.target.value = "";
+          }}
+        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-white/15 dark:text-slate-300 dark:hover:border-indigo-400/50 dark:hover:text-indigo-400"
+          >
+            Upload logo
+          </button>
+          {logo && (
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              title="Remove logo"
+              className="rounded-lg border border-slate-300 p-2 text-slate-500 transition-colors hover:border-red-400 hover:text-red-500 dark:border-white/15 dark:text-slate-400"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="mt-1.5 text-[11px] text-slate-400">PNG or SVG, square works best.</p>
+    </div>
+  );
+}
+
 function StepBody({
   step,
   published,
+  savedName,
   onPublish,
+  name,
+  setName,
+  baseUrl,
+  setBaseUrl,
+  method,
+  setMethod,
+  logo,
+  setLogo,
 }: {
   step: number;
   published: boolean;
+  savedName: string;
   onPublish: () => void;
+  name: string;
+  setName: (v: string) => void;
+  baseUrl: string;
+  setBaseUrl: (v: string) => void;
+  method: Method;
+  setMethod: (m: Method) => void;
+  logo: string | null;
+  setLogo: (v: string | null) => void;
 }) {
   switch (step) {
     case 0:
@@ -46,24 +133,35 @@ function StepBody({
             <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">
               Connector name
             </label>
-            <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-800 dark:border-white/15 dark:bg-black/30 dark:text-slate-200">
-              shopify-orders
-              <span className="ml-auto rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                ✓ available
-              </span>
+            <div className="mt-1.5 flex items-center gap-2">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="my-connector"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 dark:border-white/15 dark:bg-black/30 dark:text-slate-200"
+              />
+              {name.trim() && (
+                <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  ✓ available
+                </span>
+              )}
             </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">
               Base URL
             </label>
-            <div className="mt-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 font-mono text-[13px] text-slate-700 dark:border-white/15 dark:bg-black/30 dark:text-slate-300">
-              https://api.shopify.com/v1
-            </div>
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.example.com/v1"
+              className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 font-mono text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 dark:border-white/15 dark:bg-black/30 dark:text-slate-300"
+            />
           </div>
+          <LogoUploader logo={logo} onChange={setLogo} />
           <p className="rounded-xl bg-indigo-50 px-3.5 py-2.5 text-[13px] leading-relaxed text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-300">
             <Sparkles className="mr-1.5 inline h-3.5 w-3.5" />
-            A starter config was generated — 9 of 14 fields pre-filled.
+            A starter config is generated automatically — publish and it stays saved for you.
           </p>
         </div>
       );
@@ -75,18 +173,20 @@ function StepBody({
               Connection method
             </p>
             <div className="mt-1.5 grid grid-cols-2 gap-2.5">
-              {["OAuth 2.0", "MCP"].map((method, i) => (
-                <div
-                  key={method}
+              {METHODS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMethod(m)}
                   className={cn(
-                    "rounded-xl border px-3.5 py-2.5 text-sm font-semibold",
-                    i === 0
+                    "rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all",
+                    method === m
                       ? "border-indigo-500 bg-indigo-50/70 text-indigo-700 dark:border-indigo-400/50 dark:bg-indigo-400/10 dark:text-indigo-300"
-                      : "border-slate-300 text-slate-500 dark:border-white/15 dark:text-slate-400"
+                      : "border-slate-300 text-slate-500 hover:border-slate-400 dark:border-white/15 dark:text-slate-400"
                   )}
                 >
-                  {method}
-                </div>
+                  {m}
+                </button>
               ))}
             </div>
           </div>
@@ -113,9 +213,7 @@ function StepBody({
                   <span className="font-mono text-[13px] text-slate-700 dark:text-slate-300">
                     {scope.id}
                   </span>
-                  <span className="ml-auto text-xs text-slate-400">
-                    {scope.label}
-                  </span>
+                  <span className="ml-auto text-xs text-slate-400">{scope.label}</span>
                 </div>
               ))}
             </div>
@@ -126,7 +224,7 @@ function StepBody({
       return (
         <div className="space-y-3">
           {[
-            { title: "OAuth handshake", desc: "Redirect to shopify.com consent", state: "done" as const },
+            { title: "OAuth handshake", desc: "Redirect to your app's consent screen", state: "done" as const },
             { title: "Consent approved", desc: "orders:read, orders:write granted", state: "done" as const },
             { title: "Token exchange", desc: "PKCE verified · refresh token stored", state: "active" as const },
           ].map((row) => (
@@ -186,10 +284,10 @@ function StepBody({
             <Rocket className="h-7 w-7 text-emerald-500" />
           </span>
           <p className="mt-4 text-lg font-bold text-slate-900 dark:text-white">
-            shopify-orders is live!
+            {savedName} is live!
           </p>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Your team can now use it in any AI agent.
+            Saved to your workspace — you can reconnect it anytime without rebuilding.
           </p>
         </div>
       ) : (
@@ -212,7 +310,8 @@ function StepBody({
           ))}
           <button
             onClick={onPublish}
-            className="mt-1 w-full rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/30 transition-all hover:shadow-indigo-600/50"
+            disabled={!name.trim()}
+            className="mt-1 w-full rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/30 transition-all hover:shadow-indigo-600/50 disabled:opacity-50"
           >
             Publish connector
           </button>
@@ -224,6 +323,24 @@ function StepBody({
 export function BuilderPreview() {
   const [activeStep, setActiveStep] = useState(0);
   const [published, setPublished] = useState(false);
+  const [name, setName] = useState("my-app");
+  const [baseUrl, setBaseUrl] = useState("https://api.example.com/v1");
+  const [method, setMethod] = useState<Method>("OAuth 2.0");
+  const [logo, setLogo] = useState<string | null>(null);
+  const [savedName, setSavedName] = useState("my-app");
+
+  const handlePublish = () => {
+    const finalName = name.trim() || "my-app";
+    addCustomConnector({
+      name: finalName,
+      baseUrl: baseUrl.trim() || "https://api.example.com/v1",
+      method,
+      logo,
+    });
+    setSavedName(finalName);
+    setPublished(true);
+    window.dispatchEvent(new Event("vedaapex-custom-connectors-updated"));
+  };
 
   return (
     <section
@@ -235,8 +352,8 @@ export function BuilderPreview() {
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="Live builder"
-          title="Watch a connector come together"
-          description="This is the real flow you'll go through — create, configure, authenticate, test, publish. Try the steps."
+          title="Build your connector in minutes"
+          description="Create, configure, authenticate, test and publish. Add your own logo — your connector stays saved so you can reconnect it anytime."
         />
 
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
@@ -268,8 +385,8 @@ export function BuilderPreview() {
               </button>
             ))}
             <p className="px-4 pt-3 text-xs leading-relaxed text-slate-400 dark:text-slate-500">
-              Tip: every step can be re-run after publishing — config changes
-              are live in seconds, never breaking existing sessions.
+              Tip: published connectors stay saved in your workspace — disconnect and
+              reconnect anytime without rebuilding.
             </p>
           </div>
 
@@ -277,7 +394,16 @@ export function BuilderPreview() {
             <StepBody
               step={activeStep}
               published={published}
-              onPublish={() => setPublished(true)}
+              savedName={savedName}
+              onPublish={handlePublish}
+              name={name}
+              setName={setName}
+              baseUrl={baseUrl}
+              setBaseUrl={setBaseUrl}
+              method={method}
+              setMethod={setMethod}
+              logo={logo}
+              setLogo={setLogo}
             />
           </div>
         </div>

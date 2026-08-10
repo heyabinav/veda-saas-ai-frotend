@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
+import { apiRequest } from "@/lib/api";
 import { Eye, EyeOff, Mail, Lock, User } from "lucide-react";
 
 function SignupContent() {
@@ -31,20 +32,50 @@ function SignupContent() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: typeof window !== "undefined" ? window.location.origin : "",
-          data: { username, full_name: username },
-        },
+      const res = await fetch("/api/proxy/api/v1/email/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          username: username.trim() || email.split("@")[0],
+          full_name: username.trim(),
+        }),
       });
-      setLoading(false);
-      if (error) return setError(error.message);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setLoading(false);
+        setError(data?.message || data?.detail || "Signup failed. Please try again.");
+        return;
+      }
+
+      const payload = data?.data && typeof data.data === "object" ? data.data : data;
+      const token =
+        payload?.token ||
+        payload?.access_token ||
+        payload?.auth_token ||
+        payload?.accessToken;
+
+      if (!token) {
+        // Registration succeeded but no token — treat as "verify your email" flow
+        setLoading(false);
+        document.cookie = "guest_session=; path=/; max-age=0";
+        document.cookie = "guest_expires=; path=/; max-age=0";
+        document.cookie = `user_email=${encodeURIComponent(email.trim())}; path=/; max-age=${365 * 24 * 60 * 60}`;
+        if (username.trim()) {
+          document.cookie = `user_name=${encodeURIComponent(username.trim())}; path=/; max-age=${365 * 24 * 60 * 60}`;
+        }
+        router.replace("/login");
+        return;
+      }
+
       document.cookie = "guest_session=; path=/; max-age=0";
       document.cookie = "guest_expires=; path=/; max-age=0";
-      const graceExpiry = Date.now() + 365 * 24 * 60 * 60 * 1000;
-      document.cookie = `post_login_grace=${graceExpiry}; path=/; max-age=${365 * 24 * 60 * 60}`;
+      document.cookie = `auth_token=${encodeURIComponent(token)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+      if (username.trim()) {
+        document.cookie = `user_name=${encodeURIComponent(username.trim())}; path=/; max-age=${365 * 24 * 60 * 60}`;
+      }
       if (email.trim()) {
         document.cookie = `user_email=${encodeURIComponent(email.trim())}; path=/; max-age=${365 * 24 * 60 * 60}`;
       }

@@ -23,6 +23,8 @@ import {
   Check,
   Trash2,
   Terminal,
+  Wallet,
+  KeyRound,
 } from "lucide-react";
 
 import type { Chat, Folder, Message } from "@/types";
@@ -101,6 +103,7 @@ export default function Sidebar({
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [cookieUser, setCookieUser] = useState<{ name: string; email: string } | null>(null);
+  const [localAvatar, setLocalAvatar] = useState<string | null>(null);
 
   // Search and chat states
   const [searchQuery, setSearchQuery] = useState("");
@@ -133,6 +136,24 @@ export default function Sidebar({
     }
   }, []);
 
+  // Read shared avatar from localStorage (set from Settings page) — works for cookie/backend login too
+  useEffect(() => {
+    const readAvatar = () => {
+      try {
+        setLocalAvatar(window.localStorage.getItem("vedaapex-avatar"));
+      } catch {
+        setLocalAvatar(null);
+      }
+    };
+    readAvatar();
+    window.addEventListener("vedaapex-avatar-updated", readAvatar);
+    window.addEventListener("storage", readAvatar);
+    return () => {
+      window.removeEventListener("vedaapex-avatar-updated", readAvatar);
+      window.removeEventListener("storage", readAvatar);
+    };
+  }, []);
+
   async function handleLogout() {
     await supabase.auth.signOut();
     document.cookie = "post_login_grace=; path=/; max-age=0";
@@ -143,6 +164,19 @@ export default function Sidebar({
     setCookieUser(null);
     router.replace("/login");
   }
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      const menu = document.getElementById("user-menu");
+      const btn = document.getElementById("user-menu-btn");
+      if (!menu || !btn) return;
+      if (!menu.contains(e.target as Node) && !btn.contains(e.target as Node)) {
+        menu.classList.add("hidden");
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   const filteredChats = chats.filter((c) =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -296,6 +330,14 @@ export default function Sidebar({
             <SidebarItem icon={Compass} label="Explore Apex" active={pathname === "/explore-vedas"} href="/explore-vedas" sidebarOpen={sidebarOpen} />
           </div>
 
+          <div className="space-y-0.5">
+            <div className="px-3 py-1 text-[11px] font-semibold text-foreground/45 uppercase tracking-wider">
+              {sidebarOpen && "Account"}
+            </div>
+            <SidebarItem icon={Wallet} label="Wallet & Credits" active={pathname === "/wallet"} href="/wallet" sidebarOpen={sidebarOpen} />
+            <SidebarItem icon={KeyRound} label="API Keys" active={pathname === "/developer"} href="/developer" sidebarOpen={sidebarOpen} />
+          </div>
+
           {sidebarOpen && (
             <div className="space-y-1.5 animate-fade-in">
               <div className="flex items-center justify-between px-3 py-1 text-[11px] font-semibold text-foreground/45 uppercase tracking-wider">
@@ -320,11 +362,17 @@ export default function Sidebar({
           {user || cookieUser ? (
             <div className="relative">
               <button
+                id="user-menu-btn"
                 onClick={() => { document.getElementById("user-menu")?.classList.toggle("hidden"); }}
                 className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 hover:bg-black/5 transition ${!sidebarOpen ? "justify-center" : ""}`}
               >
-                <div className="flex h-8 w-8 min-w-[32px] items-center justify-center rounded-full bg-foreground/15 text-xs font-medium text-foreground/80 overflow-hidden">
-                  {(user?.email?.[0] ?? cookieUser?.email?.[0] ?? cookieUser?.name?.[0] ?? "U").toUpperCase()}
+                <div className="flex h-8 w-8 min-w-[32px] items-center justify-center rounded-lg bg-foreground/15 text-xs font-medium text-foreground/80 overflow-hidden">
+                  {user?.user_metadata?.avatar || localAvatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user?.user_metadata?.avatar || localAvatar!} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    (user?.email?.[0] ?? cookieUser?.email?.[0] ?? cookieUser?.name?.[0] ?? "U").toUpperCase()
+                  )}
                 </div>
                 {sidebarOpen && (
                   <>

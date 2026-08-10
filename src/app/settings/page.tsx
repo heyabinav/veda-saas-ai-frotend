@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { defaultAiSettings } from "@/config/default-ai-settings";
 import {
   User,
@@ -30,8 +30,26 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/integrations/supabase/client";
+import { getPlanBasedAiSettings } from "@/lib/ai-settings";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
+
+const SETTINGS_MODELS = [
+  { name: "Apex 2.1", price: "free" },
+  { name: "Apex 2.2 (Low)", price: "200" },
+  { name: "Apex 2.2 (High)", price: "500" },
+  { name: "Apex 3.0 Ultra (Deep Coding Reasoning)", price: "1000" },
+];
+
+function canAccessModel(plan: string | null, price: string) {
+  if (price === "free") return true;
+  if (!plan) return false;
+  if (price === "200") return ["200", "500", "1000"].includes(plan);
+  if (price === "500") return ["500", "1000"].includes(plan);
+  if (price === "1000") return plan === "1000";
+  return false;
+}
 
 const menuItems = [
   { id: "general", label: "General & Profile", icon: User, color: "text-blue-500 bg-blue-500/10" },
@@ -53,6 +71,7 @@ const defaultProfileSettings = {
   profession: "",
   location: "",
   email: "",
+  avatar: "",
 };
 
 const defaultWorkspaceSettings = {
@@ -97,10 +116,83 @@ const defaultSystemSettings = {
   releaseNotes: true,
 };
 
+type AccountIdentity = {
+  fullName: string;
+  username: string;
+  profession: string;
+  location: string;
+  email: string;
+  avatar: string;
+};
+
+type StoredSettingsSnapshot = {
+  profileSettings?: Partial<AccountIdentity>;
+  settings?: Partial<typeof defaultSystemSettings>;
+  workspaceSettings?: Partial<typeof defaultWorkspaceSettings>;
+  privacySettings?: Partial<typeof defaultPrivacySettings>;
+  securitySettings?: Partial<typeof defaultSecuritySettings>;
+  aiSettings?: Partial<typeof defaultAiSettings>;
+  theme?: string;
+  lastSavedAt?: string;
+};
+
+function readCookie(key: string) {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.split("; ").find((c) => c.startsWith(`${key}=`));
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match.slice(key.length + 1));
+  } catch {
+    return match.slice(key.length + 1);
+  }
+}
+
+function getIdentityKey(email: string, username: string) {
+  const raw = (email || username || "guest").trim().toLowerCase();
+  return raw || "guest";
+}
+
+function getSettingsStorageKey(identity: AccountIdentity) {
+  return `vedaapex-settings:${getIdentityKey(identity.email, identity.username)}`;
+}
+
+function buildIdentityFromUser(
+  currentUser: SupabaseUser | null,
+  fallbackName = "",
+  fallbackEmail = ""
+): AccountIdentity {
+  const meta = currentUser?.user_metadata || {};
+  const email = currentUser?.email || fallbackEmail || "";
+  const baseName = fallbackName || meta.full_name || meta.name || meta.username || email.split("@")[0] || "";
+  const username = meta.username || baseName || email.split("@")[0] || "";
+
+  return {
+    fullName: baseName,
+    username,
+    profession: meta.profession || "",
+    location: meta.location || "",
+    email,
+    avatar: meta.avatar || "",
+  };
+}
+
+function loadSnapshot(key: string): StoredSettingsSnapshot | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredSettingsSnapshot;
+  } catch {
+    return null;
+  }
+}
+
 export default function SettingsPage() {
+  const router = useRouter();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("general");
   const { theme, setTheme } = useTheme();
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [settingsKey, setSettingsKey] = useState<string>("vedaapex-settings:guest");
 
   const [profileSettings, setProfileSettings] = useState(defaultProfileSettings);
   const [settings, setSettings] = useState(defaultSystemSettings);
@@ -111,26 +203,35 @@ export default function SettingsPage() {
   const [saveStatus, setSaveStatus] = useState("Unsaved changes");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
+  const userPlan = user?.user_metadata?.plan || readCookie("user_plan") || null;
+
   const toggleSetting = (key: keyof typeof settings) => {
     setSettings((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   useEffect(() => {
+    const cookieIdentity = buildIdentityFromUser(
+      null,
+      readCookie("user_name"),
+      readCookie("user_email")
+    );
+
     function applyUser(currentUser: SupabaseUser | null) {
       setUser(currentUser);
-      if (currentUser) {
-        const meta = currentUser.user_metadata || {};
-        const email = currentUser.email || "";
-        const fullName = meta.full_name || meta.name || email.split("@")[0] || "";
-        const username = meta.username || email.split("@")[0] || "";
-        setProfileSettings({
-          fullName,
-          username,
-          profession: meta.profession || "",
-          location: meta.location || "",
-          email,
-        });
+      const identity = buildIdentityFromUser(
+        currentUser,
+        cookieIdentity.fullName,
+        cookieIdentity.email
+      );
+      if (!identity.avatar) {
+        try {
+          identity.avatar = window.localStorage.getItem("vedaapex-avatar") || "";
+        } catch {
+          identity.avatar = "";
+        }
       }
+      setProfileSettings(identity);
+      setSettingsKey(getSettingsStorageKey(identity));
     }
 
     supabase.auth.getSession().then(({ data }) => {
@@ -145,23 +246,72 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem("vedaapex-settings");
-    if (!raw) return;
+    const snapshot = loadSnapshot(settingsKey);
+    if (!snapshot) {
+      setAiSettings(getPlanBasedAiSettings(user?.user_metadata?.plan || readCookie("user_plan")));
+      setSaveStatus(user || readCookie("user_email") ? "Synced to account profile" : "Unsaved changes");
+      return;
+    }
 
     try {
-      const parsed = JSON.parse(raw);
-      if (parsed.settings) setSettings((prev) => ({ ...prev, ...parsed.settings }));
-      if (parsed.workspaceSettings) setWorkspaceSettings((prev) => ({ ...prev, ...parsed.workspaceSettings }));
-      if (parsed.privacySettings) setPrivacySettings((prev) => ({ ...prev, ...parsed.privacySettings }));
-      if (parsed.securitySettings) setSecuritySettings((prev) => ({ ...prev, ...parsed.securitySettings }));
-      if (parsed.aiSettings) setAiSettings((prev) => ({ ...prev, ...parsed.aiSettings }));
-      if (parsed.theme) setTheme(parsed.theme);
-      if (parsed.lastSavedAt) setLastSavedAt(parsed.lastSavedAt);
+      if (snapshot.profileSettings) {
+        setProfileSettings((prev) => {
+          const merged = { ...prev, ...snapshot.profileSettings };
+          if (!merged.avatar) {
+            try {
+              merged.avatar = window.localStorage.getItem("vedaapex-avatar") || "";
+            } catch {
+              merged.avatar = "";
+            }
+          }
+          return merged;
+        });
+      }
+      if (snapshot.settings) setSettings((prev) => ({ ...prev, ...snapshot.settings }));
+      if (snapshot.workspaceSettings) setWorkspaceSettings((prev) => ({ ...prev, ...snapshot.workspaceSettings }));
+      if (snapshot.privacySettings) setPrivacySettings((prev) => ({ ...prev, ...snapshot.privacySettings }));
+      if (snapshot.securitySettings) setSecuritySettings((prev) => ({ ...prev, ...snapshot.securitySettings }));
+      if (snapshot.aiSettings) setAiSettings((prev) => ({ ...prev, ...snapshot.aiSettings }));
+      if (snapshot.theme) setTheme(snapshot.theme);
+      if (snapshot.lastSavedAt) setLastSavedAt(snapshot.lastSavedAt);
       setSaveStatus("Synced from saved preferences");
     } catch (error) {
       console.error("Failed to load settings snapshot", error);
     }
-  }, [setTheme]);
+  }, [settingsKey, setTheme, user]);
+
+  const syncAvatarGlobally = () => {
+    try {
+      if (profileSettings.avatar) {
+        window.localStorage.setItem("vedaapex-avatar", profileSettings.avatar);
+      } else {
+        window.localStorage.removeItem("vedaapex-avatar");
+      }
+      window.dispatchEvent(new Event("vedaapex-avatar-updated"));
+    } catch {
+      // localStorage full or unavailable — ignore
+    }
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file (JPG, PNG, WebP).");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Image too large — max size is 2MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setProfileSettings((prev) => ({ ...prev, avatar: String(reader.result) }));
+      setSaveStatus("Unsaved changes — click Save Changes to keep your avatar");
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSave = async () => {
     if (user) {
@@ -171,6 +321,7 @@ export default function SettingsPage() {
           username: profileSettings.username,
           profession: profileSettings.profession,
           location: profileSettings.location,
+          avatar: profileSettings.avatar || null,
         },
       });
       if (error) {
@@ -178,34 +329,41 @@ export default function SettingsPage() {
       }
     }
 
+    const payload: StoredSettingsSnapshot = {
+      profileSettings,
+      settings,
+      workspaceSettings,
+      privacySettings,
+      securitySettings,
+      aiSettings,
+      theme,
+      lastSavedAt: new Date().toISOString(),
+    };
+
     window.localStorage.setItem(
-      "vedaapex-settings",
+      settingsKey,
       JSON.stringify({
-        profileSettings,
-        settings,
-        workspaceSettings,
-        privacySettings,
-        securitySettings,
-        aiSettings,
-        theme,
-        lastSavedAt: new Date().toISOString(),
+        ...payload,
       })
     );
     const savedAt = new Date().toLocaleString();
     setLastSavedAt(savedAt);
     setSaveStatus("Saved successfully");
+    syncAvatarGlobally();
   };
 
   const handleReset = () => {
-    setProfileSettings(defaultProfileSettings);
     setSettings(defaultSystemSettings);
     setWorkspaceSettings(defaultWorkspaceSettings);
     setPrivacySettings(defaultPrivacySettings);
     setSecuritySettings(defaultSecuritySettings);
-    setAiSettings(defaultAiSettings);
+    setAiSettings(getPlanBasedAiSettings(user?.user_metadata?.plan || readCookie("user_plan")));
     setTheme("light");
     setLastSavedAt(null);
+    const identity = buildIdentityFromUser(user, readCookie("user_name"), readCookie("user_email"));
+    setProfileSettings(identity);
     setSaveStatus("Reset to defaults");
+    syncAvatarGlobally();
   };
 
   const formatSavedAt = (value: string | null) => {
@@ -257,8 +415,8 @@ export default function SettingsPage() {
     <div className="h-screen w-full">
       <div className="flex h-full w-full overflow-hidden">
         <main className="relative flex flex-1 flex-col min-h-0 overflow-y-auto bg-[#F4F1EA]">
-          <div className="flex min-h-screen text-foreground overflow-hidden font-sans">
-      <div className="w-[320px] border-r border-black/5 bg-white/90 backdrop-blur-xl p-6 flex flex-col justify-between shrink-0">
+          <div className="flex flex-col md:flex-row min-h-screen text-foreground overflow-hidden font-sans">
+      <div className="w-full md:w-[320px] md:shrink-0 border-b md:border-b-0 md:border-r border-black/5 bg-white/90 backdrop-blur-xl p-4 md:p-6 flex flex-col justify-between">
         <div className="space-y-5">
           <div className="flex items-center gap-3">
             <Link
@@ -274,11 +432,15 @@ export default function SettingsPage() {
               <p className="text-xs text-foreground/50">Manage your account and preferences</p>
             </div>
           </div>
-
-          <div className="rounded-[22px] border border-black/5 bg-[#FCFBF7] p-4 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-foreground text-white font-semibold text-sm">
-                {getInitials()}
+            <div className="rounded-[22px] border border-black/5 bg-[#FCFBF7] p-4 shadow-sm">
+              <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-foreground text-white font-semibold text-sm overflow-hidden">
+                {profileSettings.avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={profileSettings.avatar} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  getInitials()
+                )}
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground">
@@ -297,14 +459,14 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <nav className="flex flex-col gap-1.5 max-h-[62vh] overflow-y-auto pr-1">
+          <nav className="flex gap-1.5 overflow-x-auto md:flex-col md:max-h-[62vh] md:overflow-y-auto md:overflow-x-visible pr-1 pb-2 md:pb-0">
             {menuItems.map((item) => {
               const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center justify-between w-full px-4 py-3 rounded-2xl text-left text-sm font-medium transition-all border ${
+                  className={`flex items-center justify-between w-full shrink-0 px-4 py-3 rounded-2xl text-left text-sm font-medium transition-all border ${
                     isActive
                       ? "bg-foreground text-white border-foreground shadow-sm"
                       : "hover:bg-black/5 text-foreground/70 hover:text-foreground border-transparent"
@@ -329,7 +491,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-[#F4F1EA] p-8 xl:p-10 flex justify-center">
+      <div className="flex-1 overflow-y-auto bg-[#F4F1EA] p-4 sm:p-8 xl:p-10 flex justify-center">
         <div className="max-w-6xl w-full space-y-8 pb-16">
           <div className="rounded-[28px] border border-black/5 bg-white p-7 shadow-sm">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -337,7 +499,7 @@ export default function SettingsPage() {
                 <p className="text-[11px] uppercase tracking-[0.24em] text-foreground/40">
                   System Preferences
                 </p>
-                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-foreground capitalize">
+                <h1 className="mt-3 text-2xl sm:text-3xl lg:text-4xl font-semibold tracking-tight text-foreground capitalize">
                   {activeTab === "vedas" ? "VedaS AI Settings" : `${activeTab} Settings`}
                 </h1>
                 <p className="mt-3 text-sm leading-6 text-foreground/55">
@@ -355,7 +517,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   onClick={handleReset}
                   className="rounded-xl border border-black/5 bg-[#FAFAFA] px-4 py-2.5 text-sm font-medium text-foreground/70 transition hover:bg-black/5"
@@ -397,16 +559,63 @@ export default function SettingsPage() {
                     <User className="h-5 w-5 text-violet-500" /> Profile Settings
                   </h3>
                   <div className="flex flex-col md:flex-row items-center gap-6 mb-6">
-                    <div className="relative group cursor-pointer">
-                      <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-violet-600 to-indigo-600 p-1">
-                        <div className="w-full h-full rounded-full bg-white dark:bg-zinc-950 flex items-center justify-center overflow-hidden">
-                          <div className="w-full h-full rounded-full bg-gradient-to-br from-slate-100 to-slate-200 dark:from-zinc-800 dark:to-zinc-700 flex items-center justify-center text-slate-600 dark:text-slate-200 font-semibold text-2xl">
-                            {getInitials()}
+                    <div className="flex flex-col items-center gap-2">
+                      <div
+                        className="relative group cursor-pointer"
+                        onClick={() => avatarInputRef.current?.click()}
+                        title="Click to upload profile picture"
+                      >
+                        <div className="w-24 h-24 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 p-1">
+                          <div className="w-full h-full rounded-2xl bg-white dark:bg-zinc-950 flex items-center justify-center overflow-hidden">
+                            {profileSettings.avatar ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={profileSettings.avatar}
+                                alt="Profile"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-zinc-800 dark:to-zinc-700 flex items-center justify-center text-slate-600 dark:text-slate-200 font-semibold text-2xl">
+                                {getInitials()}
+                              </div>
+                            )}
                           </div>
                         </div>
+                        <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200">
+                          <Upload className="w-6 h-6 text-white" />
+                        </div>
                       </div>
-                      <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200">
-                        <Upload className="w-6 h-6 text-white" />
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleAvatarChange}
+                      />
+                      <div className="flex items-center gap-2">
+                        <span
+                          onClick={() => avatarInputRef.current?.click()}
+                          className="text-xs font-semibold text-violet-500 hover:text-violet-600 cursor-pointer transition"
+                        >
+                          {profileSettings.avatar ? "Change photo" : "Attach photo"}
+                        </span>
+                        {profileSettings.avatar && (
+                          <span
+                            onClick={() => {
+                              setProfileSettings((prev) => ({ ...prev, avatar: "" }));
+                              setSaveStatus("Unsaved changes — click Save Changes to keep your avatar");
+                              try {
+                                window.localStorage.removeItem("vedaapex-avatar");
+                                window.dispatchEvent(new Event("vedaapex-avatar-updated"));
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                            className="text-xs font-semibold text-red-500 hover:text-red-600 cursor-pointer transition"
+                          >
+                            Remove
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex-1 space-y-1 text-center md:text-left">
@@ -491,14 +700,33 @@ export default function SettingsPage() {
                         Primary Code Model
                       </label>
                       <select
-                        value={aiSettings.defaultModel}
-                        onChange={(e) => setAiSettings((prev) => ({ ...prev, defaultModel: e.target.value }))}
+                        value={
+                          SETTINGS_MODELS.some(
+                            (m) => m.name === aiSettings.defaultModel && canAccessModel(userPlan, m.price)
+                          )
+                            ? aiSettings.defaultModel
+                            : "Apex 2.1"
+                        }
+                        onChange={(e) => {
+                          const chosen = e.target.value;
+                          const opt = SETTINGS_MODELS.find((m) => m.name === chosen);
+                          if (opt && !canAccessModel(userPlan, opt.price)) {
+                            router.push("/upgrade");
+                            return;
+                          }
+                          setAiSettings((prev) => ({ ...prev, defaultModel: chosen }));
+                        }}
                         className="w-full px-4 py-2.5 border border-slate-200 dark:border-zinc-800 rounded-xl bg-slate-50 dark:bg-zinc-950 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition outline-none"
                       >
-                        <option>Apex 2.2 (Low)</option>
-                        <option>Apex 2.2 (High)</option>
-                        <option>Apex 2.2 (Beta)</option>
-                        <option>Apex 3.0 Ultra (Deep Coding Reasoning)</option>
+                        {SETTINGS_MODELS.map((m) => {
+                          const allowed = canAccessModel(userPlan, m.price);
+                          return (
+                            <option key={m.name} value={m.name}>
+                              {m.name}
+                              {allowed ? "" : "  — Upgrade Required"}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
@@ -1066,7 +1294,7 @@ export default function SettingsPage() {
                       step="0.05"
                       value={aiSettings.creativity}
                       onChange={(e) => setAiSettings({ ...aiSettings, creativity: parseFloat(e.target.value) })}
-                      className="w-full h-1.5 bg-slate-200 dark:bg-zinc-800 rounded-full appearance-none cursor-pointer accent-violet-600"
+                      className="range-slider w-full"
                     />
                     <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
                       <span>Strict & Deterministic (0.1)</span>

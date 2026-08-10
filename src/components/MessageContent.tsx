@@ -20,7 +20,11 @@ function TextBlock({ content }: { content: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          p: ({ children }) => <p className="whitespace-pre-wrap leading-relaxed">{children}</p>,
+          p: ({ children }) => (
+            <p className="whitespace-pre-wrap leading-relaxed">
+              {typeof children === "string" ? children.replace(/[ \t]+\n+$/g, "") : children}
+            </p>
+          ),
           ul: ({ children }) => <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>,
           ol: ({ children }) => <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>,
           li: ({ children }) => <li>{children}</li>,

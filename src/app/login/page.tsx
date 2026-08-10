@@ -74,15 +74,22 @@ function LoginContent() {
         userName = user?.name || user?.full_name || user?.username || user?.display_name || "";
       }
       if (!userName) userName = userEmail.split("@")[0];
+      const userPlan =
+        payload?.plan ||
+        payload?.user?.plan ||
+        payload?.user_metadata?.plan ||
+        payload?.user?.user_metadata?.plan ||
+        "";
 
       // Save persistent session (1 year)
       document.cookie = "guest_session=; path=/; max-age=0";
       document.cookie = "guest_expires=; path=/; max-age=0";
-      const graceExpiry = Date.now() + 365 * 24 * 60 * 60 * 1000;
-      document.cookie = `post_login_grace=${graceExpiry}; path=/; max-age=${365 * 24 * 60 * 60}`;
       document.cookie = `auth_token=${encodeURIComponent(token)}; path=/; max-age=${365 * 24 * 60 * 60}`;
       document.cookie = `user_name=${encodeURIComponent(userName)}; path=/; max-age=${365 * 24 * 60 * 60}`;
       document.cookie = `user_email=${encodeURIComponent(userEmail)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+      if (userPlan) {
+        document.cookie = `user_plan=${encodeURIComponent(userPlan)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+      }
 
       setLoading(false);
       router.replace(destination);
@@ -98,8 +105,6 @@ function LoginContent() {
     try {
       document.cookie = "guest_session=; path=/; max-age=0";
       document.cookie = "guest_expires=; path=/; max-age=0";
-      const graceExpiry = Date.now() + 365 * 24 * 60 * 60 * 1000;
-      document.cookie = `post_login_grace=${graceExpiry}; path=/; max-age=${365 * 24 * 60 * 60}`;
       window.location.href = ENDPOINTS.googleLogin;
     } catch (err) {
       setLoading(false);
@@ -113,8 +118,6 @@ function LoginContent() {
     try {
       document.cookie = "guest_session=; path=/; max-age=0";
       document.cookie = "guest_expires=; path=/; max-age=0";
-      const graceExpiry = Date.now() + 365 * 24 * 60 * 60 * 1000;
-      document.cookie = `post_login_grace=${graceExpiry}; path=/; max-age=${365 * 24 * 60 * 60}`;
       window.location.href = ENDPOINTS.githubLogin;
     } catch (err) {
       setLoading(false);

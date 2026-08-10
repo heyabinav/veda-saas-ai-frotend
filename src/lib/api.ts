@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 const isServer = typeof window === "undefined";
 
 // Use NEXT_PUBLIC_API_BASE_URL or fallback to the Hugging Face space url
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://vedaapex-vedaapex.hf.space";
+const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://vedaapex-saas-ai.onrender.com";
 
 type ApiRequestOptions = RequestInit & {
   timeoutMs?: number;
@@ -64,8 +64,13 @@ export async function apiRequest(endpoint: string, options: ApiRequestOptions = 
     ? `${BASE_URL.replace(/\/$/, "")}${cleanEndpoint}`
     : `/api/proxy${cleanEndpoint}`;
 
-  // Fetch Supabase session token to authorize request if not already present
+  // The backend accepts a Supabase Bearer token or an x-api-key.
+  // Priority: Supabase session token (preferred by backend), then the
+  // backend-issued auth_token cookie, then localStorage tokens, then any
+  // stored developer API key.
   let token: string | undefined;
+  let apiKey: string | undefined;
+
   try {
     const { data } = await supabase.auth.getSession();
     token = data.session?.access_token;
@@ -88,66 +93,153 @@ export async function apiRequest(endpoint: string, options: ApiRequestOptions = 
     }
   }
 
-  const headers = new Headers(options.headers);
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
+  // Fallback: tokens stored by OAuth callback / older auth flows
+  if (!token && typeof document !== "undefined") {
+    try {
+      token =
+        localStorage.getItem("accessToken") ||
+        localStorage.getItem("token") ||
+        undefined;
+    } catch {
+      // ignore localStorage read errors
+    }
   }
-  if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
+
+  // Fallback: developer API key (generated on the /developer page)
+  if (typeof document !== "undefined") {
+    try {
+      apiKey = localStorage.getItem("vedaapex_api_key") || undefined;
+    } catch {
+      // ignore localStorage read errors
+    }
   }
 
   // Handle timeout (30 seconds)
   const timeoutMs = options.timeoutMs ?? 30000;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  async function doFetch(authHeaders: Headers): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(targetUrl, {
+        ...options,
+        headers: authHeaders,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  // Build headers once, but allow a fresh set on the 401 retry (stale token cleared)
+  const buildHeaders = (currentToken: string | undefined, currentApiKey: string | undefined) => {
+    const h = new Headers(options.headers);
+    if (currentToken && !h.has("Authorization")) {
+      h.set("Authorization", `Bearer ${currentToken}`);
+    }
+    if (currentApiKey && !h.has("x-api-key")) {
+      h.set("x-api-key", currentApiKey);
+    }
+    if (!h.has("Content-Type") && !(options.body instanceof FormData)) {
+      h.set("Content-Type", "application/json");
+    }
+    return h;
+  };
+
+  let attempt = 0;
 
   try {
-    const response = await fetch(targetUrl, {
-      ...options,
-      headers,
-      signal: controller.signal,
-    });
+    let response = await doFetch(buildHeaders(token, apiKey));
 
-    clearTimeout(timeoutId);
+    // A 401 with a token attached usually means a stale/expired token. Try to
+    // refresh the Supabase session once and retry with the fresh token. Only if
+    // that fails do we clear the stale credentials, so the app can re-login.
+    if (response.status === 401 && attempt === 0 && token) {
+      attempt = 1;
+      let refreshed = false;
+      try {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        const refreshedToken = refreshData.session?.access_token;
+        if (!refreshError && refreshedToken) {
+          token = refreshedToken;
+          refreshed = true;
+          response = await doFetch(buildHeaders(token, apiKey));
+        }
+      } catch {
+        // ignore refresh errors — fall through to the 401 error path below
+      }
+
+      if (!refreshed && typeof document !== "undefined") {
+        try {
+          document.cookie = "auth_token=; path=/; max-age=0";
+          localStorage.removeItem("accessToken");
+          localStorage.removeItem("token");
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    }
 
     if (!response.ok) {
       const { errorBody, parsedError } = await readErrorBody(response);
 
-      // Log status code + full response body as requested
-      console.error(`[API Error] Request to ${endpoint} failed. Status: ${response.status}`, {
-        status: response.status,
-        body: parsedError || errorBody,
-      });
-
-      // Propagate the specific backend error message
-      const errorMessage =
-        parsedError?.detail ||
-        parsedError?.message ||
-        parsedError?.error ||
-        errorBody ||
-        `Request failed with status ${response.status}`;
-
-      // If validation error from FastAPI, format it nicely
-      if (Array.isArray(parsedError?.detail)) {
-        const validationMsg = parsedError.detail
-          .map((err: any) => `${err.loc?.join(".") || "field"}: ${err.msg}`)
-          .join(", ");
-        throw new Error(`Validation Error: ${validationMsg}`);
+      // Log 5xx as errors (server faults), but 4xx as warnings — they are
+      // business responses (e.g. "daily reward already claimed") that the UI
+      // handles gracefully. Skip noisy 401s when no auth was attached.
+      const isNoisyGuest401 = response.status === 401 && !token && !apiKey;
+      const logFn = response.status >= 500 ? console.error : console.warn;
+      if (!isNoisyGuest401) {
+        logFn(`[API Error] Request to ${endpoint} failed. Status: ${response.status}`, {
+          status: response.status,
+          body: parsedError || errorBody,
+        });
       }
 
-      throw new Error(errorMessage);
+      // Propagate the specific backend error message. Some endpoints return
+      // empty or `{}` error bodies, so only trust string fields and fall back
+      // to a readable generic message instead of showing "{}".
+      const detail = parsedError?.detail;
+      let detailText: string | undefined;
+      if (typeof detail === "string") {
+        detailText = detail;
+      } else if (Array.isArray(detail)) {
+        detailText = detail
+          .map((err: any) =>
+            `${Array.isArray(err?.loc) ? err.loc.join(".") : "field"}: ${err?.msg || JSON.stringify(err)}`
+          )
+          .join(", ");
+      }
+      const errorMessage =
+        detailText ||
+        (typeof parsedError?.message === "string" ? parsedError.message : undefined) ||
+        (typeof parsedError?.error === "string" ? parsedError.error : undefined) ||
+        (errorBody && errorBody !== "{}" && errorBody !== "" ? errorBody : undefined) ||
+        (response.status === 400
+          ? "Bad request. Please try again."
+          : response.status === 401
+            ? "Authentication required. Please log in."
+            : `Request failed with status ${response.status}.`);
+
+      // Attach the HTTP status so callers can detect auth failures (401) and redirect to login
+      const error = new Error(errorMessage) as Error & { status?: number };
+      error.status = response.status;
+      throw error;
     }
 
     return response;
   } catch (error: any) {
-    clearTimeout(timeoutId);
     if (error.name === "AbortError") {
       console.error(`[API Timeout] Request to ${endpoint} timed out after ${timeoutMs / 1000}s`);
       throw new Error(
         `Request timed out after ${timeoutMs / 1000} seconds. This might be due to a Hugging Face Space cold start. Please try again.`
       );
     }
-    console.error(`[API Exception] Request to ${endpoint} encountered exception:`, error);
+    // 4xx errors were already logged above (as warnings) and are handled by
+    // the callers — logging them again as exceptions just creates console noise
+    // for expected business errors like "daily reward already claimed".
+    if (!(error?.status && error.status < 500)) {
+      console.error(`[API Exception] Request to ${endpoint} encountered exception:`, error);
+    }
     throw error;
   }
 }

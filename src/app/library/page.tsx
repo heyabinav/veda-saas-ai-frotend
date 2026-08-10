@@ -92,11 +92,11 @@ export default function LibraryPage() {
       <div className="flex h-full w-full overflow-hidden">
         <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
-        <main className="relative flex flex-1 flex-col overflow-y-auto bg-[#F9F9F9] p-8">
+        <main className="relative flex flex-1 flex-col overflow-y-auto bg-[#F9F9F9] p-4 sm:p-8">
             <div className="max-w-6xl mx-auto w-full">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 md:mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-foreground/90">Library</h1>
+                        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground/90">Library</h1>
                         <p className="text-foreground/50">Manage your generated assets and files</p>
                     </div>
                     

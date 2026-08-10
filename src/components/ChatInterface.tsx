@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User } from "@supabase/supabase-js";
 import {
@@ -33,6 +33,14 @@ import {
   Blocks,
   Plug,
   Puzzle,
+  FileImage,
+  FileVideo,
+  FileSpreadsheet,
+  FileArchive,
+  FileType,
+  File as FileIcon,
+  ShieldCheck,
+  ExternalLink,
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import MessageContent from "@/components/MessageContent";
@@ -50,7 +58,6 @@ import {
 import { THINKING_MESSAGES } from "@/lib/thinking-messages";
 import OAuthModal from "@/components/OAuthModal";
 import ConnectorLogo from "@/components/ConnectorLogo";
-import { ChromeIcon } from "@/components/brand-icons";
 import {
   CONNECTORS,
   loadConnections,
@@ -65,11 +72,19 @@ const HEADER_MODELS = [
   { name: "VedaApex Max", price: "500" }
 ];
 
+const CUSTOM_CONNECTOR_PERMISSIONS = [
+  { id: "read", label: "Read data", desc: "View files, data & settings" },
+  { id: "write", label: "Create & update", desc: "Add or modify content" },
+  { id: "execute", label: "Execute actions", desc: "Run API calls & automations" },
+  { id: "profile", label: "Access user info", desc: "Read profile & account details" },
+  { id: "delete", label: "Delete data", desc: "Remove content (dangerous)" },
+];
+
 const COMPOSER_MODELS = [
-  { name: "Apex_2.1", price: "free" },
-  { name: "Apex_2.2(Low)", price: "200" },
-  { name: "Apex_2.2(High)", price: "500" },
-  { name: "Apex_2.2(beta)", price: "1000" }
+  { name: "Apex 2.1", price: "free" },
+  { name: "Apex 2.2 (Low)", price: "200" },
+  { name: "Apex 2.2 (High)", price: "500" },
+  { name: "Apex 3.0 Ultra (Deep Coding Reasoning)", price: "1000" }
 ];
 
 const canAccess = (plan: string | undefined, price: string) => {
@@ -81,15 +96,57 @@ const canAccess = (plan: string | undefined, price: string) => {
   return false;
 };
 
+function getFileTypeIcon(file: File) {
+  const t = file.type;
+  const n = file.name.toLowerCase();
+  if (t.startsWith("image/")) return <FileImage className="h-5 w-5 text-blue-500" />;
+  if (t.startsWith("video/")) return <FileVideo className="h-5 w-5 text-purple-500" />;
+  if (t.startsWith("audio/")) return <AudioLines className="h-5 w-5 text-amber-500" />;
+  if (t === "application/pdf") return <FileText className="h-5 w-5 text-red-500" />;
+  if (n.endsWith(".doc") || n.endsWith(".docx") || t.includes("word"))
+    return <FileType className="h-5 w-5 text-blue-500" />;
+  if (
+    n.endsWith(".xls") ||
+    n.endsWith(".xlsx") ||
+    n.endsWith(".csv") ||
+    t.includes("excel") ||
+    t.includes("spreadsheet")
+  )
+    return <FileSpreadsheet className="h-5 w-5 text-emerald-500" />;
+  if (n.endsWith(".zip") || n.endsWith(".rar") || n.endsWith(".7z"))
+    return <FileArchive className="h-5 w-5 text-amber-600" />;
+  if (t.startsWith("text/")) return <FileText className="h-5 w-5 text-violet-500" />;
+  return <FileIcon className="h-5 w-5 text-foreground/50" />;
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatMessageTime(ts: number) {
+  return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function formatDuration(ms: number) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
 export default function ChatInterface({ initialChatId }: { initialChatId?: string }) {
   const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeChatId, setActiveChatId] = useState<string | null>(initialChatId || null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [input, setInput] = useState("");
-  const [model, setModel] = useState(COMPOSER_MODELS[0].name);
+  const [model, setModel] = useState<string>(COMPOSER_MODELS[0].name);
   const [headerModel, setHeaderModel] = useState(HEADER_MODELS[0].name);
   const [modelOpen, setModelOpen] = useState(false);
   const [headerModelOpen, setHeaderModelOpen] = useState(false);
@@ -102,6 +159,12 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [promoModalOpen, setPromoModalOpen] = useState(false);
+  const customLogoInputRef = useRef<HTMLInputElement>(null);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
+  const toolsBtnRef = useRef<HTMLButtonElement>(null);
+  const composerModelRef = useRef<HTMLDivElement>(null);
+  const headerModelRef = useRef<HTMLDivElement>(null);
   const [promoCode, setPromoCode] = useState("");
   const [authResolved, setAuthResolved] = useState(false);
   const clickCountRef = useRef(0);
@@ -109,14 +172,18 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [connectorSearch, setConnectorSearch] = useState("");
+  const lastAssistantMessage = messages.slice().reverse().find((m) => m.role === "assistant");
   const [showConnectorsHub, setShowConnectorsHub] = useState(false);
   const [connectorConnections, setConnectorConnections] = useState<Record<string, string>>({});
   const [connectorEnabled, setConnectorEnabled] = useState<Record<string, boolean>>({});
-  const [customConnectors, setCustomConnectors] = useState<{ id: string; name: string; url: string }[]>([]);
+  const [customConnectors, setCustomConnectors] = useState<{ id: string; name: string; url: string; logo?: string; permissions?: string[] }[]>([]);
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [customAdded, setCustomAdded] = useState(false);
   const [customName, setCustomName] = useState("");
   const [customUrl, setCustomUrl] = useState("");
+  const [customLogo, setCustomLogo] = useState("");
+  const [customLogoDragOver, setCustomLogoDragOver] = useState(false);
+  const [customPermissions, setCustomPermissions] = useState<string[]>([]);
   const [connectorFailed, setConnectorFailed] = useState<string[]>([]);
   const [oauthFor, setOauthFor] = useState<Connector | null>(null);
 
@@ -132,6 +199,11 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
   }, []);
 
+  useEffect(() => {
+    const nextModel = getClientAiSettings(user?.user_metadata?.plan).defaultModel;
+    setModel((current) => (current === COMPOSER_MODELS[0].name ? nextModel : current));
+  }, [user]);
+
   const toggleConnectorEnabled = (id: string) => {
     setConnectorEnabled((prev) => {
       const next = { ...prev, [id]: !prev[id] };
@@ -140,11 +212,49 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     });
   };
 
+  const handleCustomLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => setCustomLogo(String(reader.result));
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleCustomLogoFile = (file: File | undefined) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => setCustomLogo(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+
+  const handleCustomLogoDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setCustomLogoDragOver(false);
+    handleCustomLogoFile(e.dataTransfer.files?.[0]);
+  };
+
+  const toggleCustomPermission = (id: string) => {
+    setCustomPermissions((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+  };
+
   const addCustomConnector = () => {
     const name = customName.trim();
     if (!name) return;
-    const url = customUrl.trim() || "https://";
-    const next = [...customConnectors, { id: `custom-${Date.now()}`, name, url }];
+    const url = customUrl.trim() || "http://127.0.0.1:3000";
+    const normalizedUrl = /^https?:\/\//i.test(url) ? url : `http://${url}`;
+    const next = [
+      ...customConnectors,
+      {
+        id: `custom-${Date.now()}`,
+        name,
+        url: normalizedUrl,
+        logo: customLogo || undefined,
+        permissions: customPermissions.length ? customPermissions : undefined,
+      },
+    ];
     setCustomConnectors(next);
     localStorage.setItem("vedaapex-custom-connectors", JSON.stringify(next));
     setCustomAdded(true);
@@ -153,6 +263,8 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       setCustomAdded(false);
       setCustomName("");
       setCustomUrl("");
+      setCustomLogo("");
+      setCustomPermissions([]);
     }, 900);
   };
 
@@ -161,12 +273,9 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     setCustomConnectors(next);
     localStorage.setItem("vedaapex-custom-connectors", JSON.stringify(next));
   };
-  const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<{ id: string; file: File; url: string | null }[]>([]);
+  const [previewItem, setPreviewItem] = useState<{ id: string; file: File; url: string } | null>(null);
 
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
-  const [txtPreviewContent, setTxtPreviewContent] = useState<string | null>(null);
-  const [filePreview, setFilePreview] = useState<{ url: string; name: string; type: string } | null>(null);
   const [imgW, setImgW] = useState<number | null>(null);
   const [imgH, setImgH] = useState<number | null>(null);
   const [keepRatio, setKeepRatio] = useState(true);
@@ -204,13 +313,15 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     return () => clearInterval(interval);
   }, [isThinking]);
 
-  const autoResize = () => {
+  const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (el) {
       el.style.height = "auto";
       el.style.height = el.scrollHeight + "px";
     }
-  };
+  }, []);
+
+  const MAX_ATTACHMENTS = 10;
 
   const { getRootProps: getDropRootProps, getInputProps: getDropInputProps, isDragActive: isDropActive } = useDropzone({
     accept: {
@@ -228,47 +339,123 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       "application/rtf": [],
     },
     onDrop: (acceptedFiles) => {
-      const f = acceptedFiles[0];
-      if (f) {
-        setDroppedFile(f);
-        if (f.type.startsWith("image/") || f.type.startsWith("video/")) {
-          setPreviewUrl(URL.createObjectURL(f));
-        } else {
-          setPreviewUrl(null);
-        }
+      addFiles(acceptedFiles);
+    },
+    onDropRejected: (fileRejections) => {
+      const exceedsLimit = fileRejections.some((rejection) =>
+        rejection.errors.some((error) => error.code === "too-many-files")
+      );
+      if (exceedsLimit) {
+        alert(`You can attach a maximum of ${MAX_ATTACHMENTS} files at a time.`);
       }
     },
-    maxFiles: 1,
+    maxFiles: MAX_ATTACHMENTS,
     noClick: true,
   });
 
-  const removeAttachedFile = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    if (filePreview) URL.revokeObjectURL(filePreview.url);
-    setDroppedFile(null);
-    setPreviewUrl(null);
-    setTxtPreviewContent(null);
-    setFilePreview(null);
+  const attachedFilesCountRef = useRef(0);
+
+  useEffect(() => {
+    attachedFilesCountRef.current = attachedFiles.length;
+  }, [attachedFiles]);
+
+  const addFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      const current = attachedFilesCountRef.current;
+      const remaining = MAX_ATTACHMENTS - current;
+      if (remaining <= 0) {
+        alert(`You already reached the limit — you can attach a maximum of ${MAX_ATTACHMENTS} files at a time.`);
+        return;
+      }
+      if (files.length > remaining) {
+        alert(
+          `You can attach a maximum of ${MAX_ATTACHMENTS} files at a time. ${files.length - remaining} file${
+            files.length - remaining > 1 ? "s" : ""
+          } skipped.`
+        );
+      }
+      const next = files.slice(0, remaining).map((file, idx) => ({
+        id: `${file.name}-${file.size}-${Date.now()}-${idx}`,
+        file,
+        url:
+          file.type.startsWith("image/") || file.type.startsWith("video/")
+            ? URL.createObjectURL(file)
+            : null,
+      }));
+      setAttachedFiles((prev) => {
+        const merged = [...prev, ...next];
+        attachedFilesCountRef.current = merged.length;
+        return merged;
+      });
+      setTimeout(autoResize, 0);
+    },
+    [autoResize]
+  );
+
+  const removeAttachedFileAt = (id: string) => {
+    setAttachedFiles((prev) => {
+      const target = prev.find((a) => a.id === id);
+      if (target?.url) URL.revokeObjectURL(target.url);
+      return prev.filter((a) => a.id !== id);
+    });
     setTimeout(autoResize, 0);
   };
 
-  const openFilePreview = () => {
-    if (!droppedFile) return;
-    if (previewUrl) {
-      setShowPreview(true);
-      return;
-    }
-    setFilePreview({
-      url: URL.createObjectURL(droppedFile),
-      name: droppedFile.name,
-      type: droppedFile.type,
+  const clearAttachedFiles = () => {
+    setAttachedFiles((prev) => {
+      prev.forEach((a) => {
+        if (a.url) URL.revokeObjectURL(a.url);
+      });
+      return [];
+    });
+    setTimeout(autoResize, 0);
+  };
+
+  const openPreview = (item: { id: string; file: File; url: string | null }) => {
+    setImgW(null);
+    setImgH(null);
+    naturalDimRef.current = null;
+    setPreviewItem({
+      id: item.id,
+      file: item.file,
+      url: item.url ?? URL.createObjectURL(item.file),
     });
   };
 
-  const closeFilePreview = () => {
-    if (filePreview) URL.revokeObjectURL(filePreview.url);
-    setFilePreview(null);
+  const closePreview = () => {
+    if (previewItem) URL.revokeObjectURL(previewItem.url);
+    setPreviewItem(null);
+    setImgW(null);
+    setImgH(null);
+    naturalDimRef.current = null;
   };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && previewItem) closePreview();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewItem]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (plusMenuRef.current && !plusMenuRef.current.contains(t)) setPlusMenuOpen(false);
+      if (
+        toolsMenuRef.current &&
+        !toolsMenuRef.current.contains(t) &&
+        (!toolsBtnRef.current || !toolsBtnRef.current.contains(t))
+      )
+        setToolsOpen(false);
+      if (composerModelRef.current && !composerModelRef.current.contains(t)) setModelOpen(false);
+      if (headerModelRef.current && !headerModelRef.current.contains(t)) setHeaderModelOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   const handleImgWidthChange = (w: number) => {
     setImgW(w);
@@ -300,20 +487,11 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
         `prompt-${txtFileCountRef.current}.txt`,
         { type: "text/plain" }
       );
-      setDroppedFile(txtFile);
-      setPreviewUrl(null);
-      setTxtPreviewContent(input.trim());
+      addFiles([txtFile]);
       setInput("");
       setTimeout(autoResize, 0);
     }
-  }, [input]);
-
-  const openTxtPreview = () => {
-    if (!droppedFile) return;
-    const reader = new FileReader();
-    reader.onload = () => setTxtPreviewContent(reader.result as string);
-    reader.readAsText(droppedFile);
-  };
+  }, [input, addFiles, autoResize]);
 
   const filteredConnectors = useMemo(() => {
     const needle = connectorSearch.trim().toLowerCase();
@@ -394,6 +572,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                 ...prev, 
                 user_metadata: { ...prev.user_metadata, plan: newPlan } 
             } : null);
+            document.cookie = `user_plan=${encodeURIComponent(newPlan)}; path=/; max-age=${365 * 24 * 60 * 60}`;
             
             alert("Plan upgraded successfully!");
             setPromoModalOpen(false);
@@ -403,8 +582,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
         alert("Invalid promo code");
     }
   };
-
-  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -667,26 +844,44 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   }
 
   async function send() {
-    const text = input.trim() || (droppedFile && txtPreviewContent ? txtPreviewContent : input.trim());
-    if (!text && !droppedFile) return;
-
-    let fileData: { name: string; type: string; dataUrl: string } | undefined;
-
-    if (droppedFile) {
-      fileData = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          resolve({
-            name: droppedFile!.name,
-            type: droppedFile!.type,
-            dataUrl: reader.result as string,
-          });
-        };
-        reader.readAsDataURL(droppedFile);
-      });
+    let text = input.trim();
+    if (!text && attachedFiles.length > 0) {
+      const txtFile = attachedFiles.find((a) => a.file.type === "text/plain");
+      if (txtFile) {
+        text = await new Promise<string>((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result));
+          r.readAsText(txtFile.file);
+        });
+      }
     }
+    if (!text && attachedFiles.length === 0) return;
 
-    const userMsg: Message = { role: "user", text, file: fileData };
+    const filesData = await Promise.all(
+      attachedFiles.map(
+        (a) =>
+          new Promise<{ name: string; type: string; dataUrl: string }>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              resolve({
+                name: a.file.name,
+                type: a.file.type,
+                dataUrl: reader.result as string,
+              });
+            };
+            reader.readAsDataURL(a.file);
+          })
+      )
+    );
+
+    const userMsg: Message = {
+      role: "user",
+      text,
+      timestamp: Date.now(),
+      file: filesData[0],
+      files: filesData.length > 0 ? filesData : undefined,
+    };
+    const sentAt = userMsg.timestamp!;
     
     // Immediate UI update
     setMessages(prev => [...prev, userMsg]);
@@ -695,7 +890,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       autoResize();
       scrollToBottom();
     }, 0);
-    removeAttachedFile();
+    clearAttachedFiles();
     setIsThinking(true); // Start thinking animation
     setToolsOpen(false); // Close tools menu on send
 
@@ -738,8 +933,9 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
           intent: "general",
           responseMode: "structured",
           accuracy: getAccuracy(user?.user_metadata?.plan),
-          system_prompt: getClientAiSettings().systemPrompt,
-          file: fileData ? { name: fileData.name, type: fileData.type, dataUrl: fileData.dataUrl } : undefined,
+          system_prompt: getClientAiSettings(user?.user_metadata?.plan).systemPrompt,
+          file: filesData[0],
+          files: filesData.length > 0 ? filesData : undefined,
         }),
       });
       const data = await response.json();
@@ -764,7 +960,12 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
 
     setIsThinking(false); // Stop thinking animation
-    const assistantMsg: Message = { role: "assistant", text: assistantText };
+    const assistantMsg: Message = {
+      role: "assistant",
+      text: assistantText,
+      timestamp: Date.now(),
+      durationMs: Date.now() - sentAt,
+    };
     const nextMessages = [...messages, userMsg, assistantMsg];
     setMessages(nextMessages);
     setShowDisclaimer(true);
@@ -888,33 +1089,25 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
         {/* Main */}
         <main className="relative flex flex-1 flex-col min-h-0">
           {/* Chat header */}
-          <div className="relative flex items-center justify-between px-6 pt-5">
-            <div className="flex items-center gap-8">
+          <div className="relative flex items-center justify-between px-4 sm:px-6 pt-5">
+            <div className="flex items-center gap-6 md:gap-8 min-w-0">
                 {!sidebarOpen && (
                 <button
                     onClick={() => setSidebarOpen(true)}
-                    className="rounded-md p-1.5 text-foreground/60 hover:bg-black/5"
+                    className="rounded-md p-1.5 text-foreground/60 hover:bg-black/5 shrink-0"
                     aria-label="Show sidebar"
-                >
+                    >
                     <PanelLeft className="h-[18px] w-[18px]" />
                 </button>
                 )}
-                <button
-                    onClick={newChat}
-                    className="flex items-center gap-1.5 rounded-md p-1.5 text-foreground/60 hover:bg-black/5"
-                    aria-label="New chat"
-                    title="New chat"
-                >
-                    <Plus className="h-[18px] w-[18px]" />
-                </button>
                 {/* Header Model Selector */}
-                <div className="relative">
+                <div className="relative" ref={headerModelRef}>
                     <button
                         onClick={() => setHeaderModelOpen(!headerModelOpen)}
-                        className="flex items-center gap-2 text-[15px] font-medium text-foreground/80 hover:text-foreground"
+                        className="flex items-center gap-2 text-[15px] font-medium text-foreground/80 hover:text-foreground whitespace-nowrap"
                     >
-                        {headerModel}
-                        <ChevronDown className="h-4 w-4 text-foreground/55" />
+                        <span className="truncate max-w-[130px] sm:max-w-none">{headerModel}</span>
+                        <ChevronDown className="h-4 w-4 text-foreground/55 shrink-0" />
                     </button>
                     {headerModelOpen && (
                         <div className="absolute left-0 top-8 z-20 w-48 rounded-lg border border-black/10 bg-white p-1 shadow-lg">
@@ -944,7 +1137,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                 </div>
             </div>
             
-            <Link href="/upgrade" className="px-4 py-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold rounded-full shadow hover:opacity-90 transition-all">
+            <Link href="/upgrade" className="shrink-0 px-3 sm:px-4 py-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold rounded-full shadow hover:opacity-90 transition-all">
                 Upgrade
             </Link>
           </div>
@@ -1081,12 +1274,82 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                     })
                   )}
                 </div>
+              {/* Custom connectors grid */}
+                {(customConnectors.length > 0 || connectorSearch.trim()) && (
+                  <div className="mt-10">
+                    <p className="text-xs font-medium uppercase tracking-wider text-foreground/40 mb-3">
+                      Custom connectors
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {customConnectors
+                        .filter((cc) =>
+                          connectorSearch.trim()
+                            ? cc.name.toLowerCase().includes(connectorSearch.trim().toLowerCase())
+                            : true
+                        )
+                        .map((cc) => (
+                          <div
+                            key={cc.id}
+                            className="flex flex-col bg-white dark:bg-[#1a1b18] border border-black/5 rounded-2xl p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+                          >
+                            <div className="flex items-start gap-3 mb-4">
+                              {cc.logo ? (
+                                <img
+                                  src={cc.logo}
+                                  alt=""
+                                  className="h-9 w-9 shrink-0 rounded-xl border border-black/10 bg-black/5 object-contain"
+                                />
+                              ) : (
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-400 to-slate-600">
+                                  <Puzzle className="h-4 w-4 text-white" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <h3 className="truncate text-base font-bold text-foreground/85">{cc.name}</h3>
+                                <p className="mt-0.5 truncate text-xs text-foreground/50">{cc.url}</p>
+                              </div>
+                              <button
+                                onClick={() => removeCustomConnector(cc.id)}
+                                aria-label={`Remove ${cc.name}`}
+                                className="shrink-0 rounded-lg p-1.5 text-foreground/30 hover:bg-black/5 hover:text-red-500 transition-colors"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                            {cc.permissions && cc.permissions.length > 0 && (
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {cc.permissions.map((p) => (
+                                  <span
+                                    key={p}
+                                    className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
+                                  >
+                                    {CUSTOM_CONNECTOR_PERMISSIONS.find((x) => x.id === p)?.label ?? p}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <a
+                              href={cc.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-auto pt-4"
+                            >
+                              <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#3b3b3b] px-4 py-2 text-xs font-semibold text-white hover:opacity-85 transition-opacity dark:bg-white dark:text-black">
+                                Launch
+                                <ExternalLink className="h-3 w-3" />
+                              </span>
+                            </a>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
             <div className="relative flex flex-1 min-w-0 overflow-hidden">
               <div
-                className="flex flex-1 flex-col items-center px-6 overflow-hidden min-w-0"
+                className="flex flex-1 flex-col items-center pl-6 pr-0 overflow-hidden min-w-0"
               >
               {messages.length === 0 ? (
                 <div className="flex w-full max-w-[720px] flex-col items-center pt-24 md:pt-28">
@@ -1095,16 +1358,49 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                   </h1>
                 </div>
               ) : (
-                <div ref={messagesContainerRef} onScroll={handleScroll} className="scrollable-container flex-1 w-full overflow-y-auto py-6 pb-36 min-h-0">
-                  <div className="max-w-[720px] mx-auto space-y-6">
+                <div ref={messagesContainerRef} onScroll={handleScroll} className="scrollable-container flex-1 w-full overflow-y-auto py-6 pb-24 min-h-0">
+                  <div className="max-w-[720px] mx-auto flex flex-col justify-end min-h-full space-y-6">
                   {messages.map((m, i) => (
                     <div
                       key={i}
                       className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}
                     >
-                      {m.role === "user" && m.file && m.file.type.startsWith("image/") && (
-                        <img src={m.file.dataUrl} alt={m.file.name} className="max-w-[200px] rounded-lg object-cover mb-1" />
-                      )}
+                      {m.role === "user" &&
+                        (m.files?.length ? m.files : m.file ? [m.file] : [])
+                          .filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"))
+                          .map((f, fi) =>
+                            f.type.startsWith("video/") ? (
+                              <video
+                                key={fi}
+                                src={f.dataUrl}
+                                muted
+                                playsInline
+                                onClick={() =>
+                                  openPreview({
+                                    id: `${f.name}-${fi}`,
+                                    file: { name: f.name, type: f.type, size: 0 } as File,
+                                    url: f.dataUrl,
+                                  })
+                                }
+                                className="max-w-[200px] rounded-lg object-cover mb-1 cursor-pointer hover:opacity-90 transition-opacity"
+                              />
+                            ) : (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                key={fi}
+                                src={f.dataUrl}
+                                alt={f.name}
+                                onClick={() =>
+                                  openPreview({
+                                    id: `${f.name}-${fi}`,
+                                    file: { name: f.name, type: f.type, size: 0 } as File,
+                                    url: f.dataUrl,
+                                  })
+                                }
+                                className="max-w-[200px] rounded-lg object-cover mb-1 cursor-pointer hover:opacity-90 transition-opacity"
+                              />
+                            ),
+                          )}
                       <div
                         className={`max-w-[80%] text-[15px] ${
                           m.role === "user"
@@ -1129,6 +1425,18 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                           m.text
                         )}
                       </div>
+                      {m.timestamp && (
+                        <div
+                          className={`mt-1 text-[10px] text-foreground/35 ${
+                            m.role === "user" ? "text-right" : ""
+                          }`}
+                        >
+                          {formatMessageTime(m.timestamp)}
+                          {m.role === "assistant" && typeof m.durationMs === "number" && (
+                            <> · answered in {formatDuration(m.durationMs)}</>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {isThinking && (
@@ -1165,68 +1473,105 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                     : "absolute bottom-0 left-0 right-0 w-full max-w-[720px] mx-auto pb-6 z-10"
                 }
               >
-                {activeTool && (
-                  <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-black/[0.05] px-3 py-1 text-xs text-foreground/70">
-                    {activeTool}
-                    <button onClick={() => setActiveTool(null)} aria-label="Clear tool">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                )}
-                <div
-                  {...getDropRootProps()}
-                  className={`rounded-3xl border transition-all relative ${
-                    droppedFile ? "px-5 py-5" : "px-5 py-4"
-                  } ${
-                    isDropActive
-                      ? "border-blue-400 bg-blue-50/50"
-                      : "border-black/[0.06] bg-white/60 backdrop-blur-xl"
-                  }`}
-                >
+                <div className="space-y-2">
+                  {activeTool && (
+                    <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-black/[0.05] px-3 py-1 text-xs text-foreground/70">
+                      {activeTool}
+                      <button onClick={() => setActiveTool(null)} aria-label="Clear tool">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                  {lastAssistantMessage && (
+                    <div className="rounded-3xl border border-black/[0.08] bg-white/[0.06] p-2.5 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-foreground/60">
+                          AI reply
+                        </span>
+                        <span className="text-[10px] text-foreground/40">Latest</span>
+                      </div>
+                      <p className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
+                        {lastAssistantMessage.text}
+                      </p>
+                    </div>
+                  )}
+                  <div
+                    {...getDropRootProps()}
+                    className={`rounded-3xl border transition-all relative ${
+                      attachedFiles.length > 0 ? "px-4 py-4 sm:px-5 sm:py-5" : "px-3 py-3 sm:px-5 sm:py-4"
+                    } ${
+                      isDropActive
+                        ? "border-blue-400 bg-blue-50/50"
+                        : "border-black/[0.06] bg-white/60 backdrop-blur-xl"
+                    }`}
+                  >
                   <input {...getDropInputProps()} />
                   {isDropActive && (
                     <div className="absolute inset-0 flex items-center justify-center rounded-3xl bg-blue-50/80 z-10">
-                      <span className="text-sm font-medium text-blue-600">Drop file here (images, videos, docs)</span>
+                      <span className="text-sm font-medium text-blue-600">Drop files here (images, videos, docs — up to 10)</span>
                     </div>
                   )}
-                  {droppedFile && (
-                    <div className="mb-2 flex items-center gap-2">
-                      <div className="relative group">
-                        <button
-                          onClick={() => {
-                            if (droppedFile?.name.toLowerCase().endsWith(".txt")) {
-                              openTxtPreview();
-                            } else {
-                              openFilePreview();
-                            }
-                          }}
-                          className={`rounded-2xl overflow-hidden shrink-0 border border-black/5 cursor-pointer flex items-center justify-center ${previewUrl ? "h-14 w-24" : "h-8 w-8 bg-black/5"}`}
-                        >
-                          {previewUrl ? (
-                            droppedFile?.type.startsWith("video/") ? (
-                              <video
-                                src={previewUrl}
-                                muted
-                                playsInline
-                                className="h-full w-full object-cover"
-                              />
+                  {attachedFiles.length > 0 && (
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      {attachedFiles.map((item) => (
+                        <div key={item.id} className="relative group shrink-0">
+                          <button
+                            onClick={() => openPreview(item)}
+                            title={`${item.file.name} — click to preview`}
+                            className="flex h-12 items-center overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm cursor-pointer transition hover:border-black/20 text-left"
+                          >
+                            {item.url ? (
+                              <span className="h-full w-16 shrink-0 overflow-hidden">
+                                {item.file.type.startsWith("video/") ? (
+                                  <video
+                                    src={item.url}
+                                    muted
+                                    playsInline
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={item.url} alt={item.file.name} className="h-full w-full object-cover" />
+                                )}
+                              </span>
                             ) : (
-                              <img src={previewUrl} alt="preview" className="h-full w-full object-cover" />
-                            )
-                          ) : (
-                            <FileText className={`h-4 w-4 ${droppedFile?.name.toLowerCase().endsWith(".txt") ? "text-violet-500" : "text-foreground/40"}`} />
-                          )}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeAttachedFile();
-                          }}
-                          className="absolute -top-1.5 -right-1.5 rounded-full bg-white p-0.5 shadow-sm border border-black/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
+                              <span className="flex h-full w-10 shrink-0 items-center justify-center bg-black/[0.04]">
+                                {getFileTypeIcon(item.file)}
+                              </span>
+                            )}
+                            <span className="flex min-w-0 flex-col pr-2.5 pl-2">
+                              <span className="max-w-[130px] truncate text-xs font-medium text-foreground">
+                                {item.file.name}
+                              </span>
+                              <span className="text-[10px] text-foreground/45">
+                                {formatFileSize(item.file.size)}
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeAttachedFileAt(item.id);
+                            }}
+                            className="absolute -top-2 -right-2 rounded-full bg-white p-0.5 shadow-sm border border-black/10 opacity-50 group-hover:opacity-100 transition-opacity"
+                            aria-label={`Remove ${item.file.name}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground/40">
+                        {(() => {
+                          const imgCount = attachedFiles.filter((a) => a.file.type.startsWith("image/")).length;
+                          const vidCount = attachedFiles.filter((a) => a.file.type.startsWith("video/")).length;
+                          const docCount = attachedFiles.length - imgCount - vidCount;
+                          const parts: string[] = [];
+                          if (imgCount > 0) parts.push(`${imgCount} image${imgCount > 1 ? "s" : ""}`);
+                          if (vidCount > 0) parts.push(`${vidCount} video${vidCount > 1 ? "s" : ""}`);
+                          if (docCount > 0) parts.push(`${docCount} file${docCount > 1 ? "s" : ""}`);
+                          return parts.join(" · ");
+                        })()}
+                      </span>
                     </div>
                   )}
                   <textarea
@@ -1256,20 +1601,15 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                       <input
                         ref={fileRef}
                         type="file"
+                        multiple
                         className="hidden"
                         onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) {
-                            setDroppedFile(f);
-                            if (f.type.startsWith("image/") || f.type.startsWith("video/")) {
-                              setPreviewUrl(URL.createObjectURL(f));
-                            } else {
-                              setPreviewUrl(null);
-                            }
-                          }
+                          const files = Array.from(e.target.files ?? []);
+                          e.target.value = "";
+                          addFiles(files);
                         }}
                       />
-                      <div className="relative">
+                      <div className="relative" ref={plusMenuRef}>
                         <button
                           onClick={() => {
                             setPlusMenuOpen((o) => !o);
@@ -1335,7 +1675,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                                         }}
                                         className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm hover:bg-black/5 text-foreground/85 hover:text-foreground transition-colors"
                                       >
-                                        <ChromeIcon className="h-4 w-4 shrink-0" />
+                                        <Globe className="h-4 w-4 shrink-0 text-blue-500" />
                                         <span className="flex-1 text-left">Browser Connectors</span>
                                       </button>
                                       <button
@@ -1404,11 +1744,27 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                                                 rel="noreferrer"
                                                 className="flex min-w-0 flex-1 items-center gap-2.5"
                                               >
-                                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-400 to-slate-600">
-                                                  <Puzzle className="h-4 w-4 text-white" />
-                                                </div>
-                                                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground/85">
-                                                  {cc.name}
+                                                {cc.logo ? (
+                                                  <img
+                                                    src={cc.logo}
+                                                    alt=""
+                                                    className="h-8 w-8 shrink-0 rounded-lg bg-black/5 object-contain"
+                                                  />
+                                                ) : (
+                                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-400 to-slate-600">
+                                                    <Puzzle className="h-4 w-4 text-white" />
+                                                  </div>
+                                                )}
+                                                <span className="min-w-0 flex-1">
+                                                  <span className="block truncate text-[13px] font-medium text-foreground/85">
+                                                    {cc.name}
+                                                  </span>
+                                                  <span className="block text-[10px] font-medium uppercase tracking-wide text-foreground/40">
+                                                    Custom
+                                                    {cc.permissions && cc.permissions.length > 0 && (
+                                                      <> · {cc.permissions.length} permission{cc.permissions.length > 1 ? "s" : ""}</>
+                                                    )}
+                                                  </span>
                                                 </span>
                                               </a>
                                               <button
@@ -1446,14 +1802,15 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                         )}
                       </div>
                       <button
+                        ref={toolsBtnRef}
                         onClick={() => setToolsOpen((o) => !o)}
-                        className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-foreground/70 hover:bg-black/5"
+                        className="flex items-center gap-1.5 rounded-full px-2 sm:px-3 py-1.5 text-sm text-foreground/70 hover:bg-black/5"
                       >
-                        <SlidersHorizontal className="h-4 w-4" />
-                        Tools
+                        <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                        <span className="hidden sm:inline">Tools</span>
                       </button>
                       {toolsOpen && (
-                        <div className="absolute bottom-12 left-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 shadow-lg">
+                        <div ref={toolsMenuRef} className="absolute bottom-12 left-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 shadow-lg">
                           {["Image", "Video", "PPT", "APEXCODE", "Explore Apex"].map((t) => (
                             <button
                               key={t}
@@ -1483,13 +1840,13 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                     </div>
                     <div className="flex items-center gap-2">
                       {/* Model Selector in Composer */}
-                      <div className="relative">
+                      <div className="relative" ref={composerModelRef}>
                           <button 
                               onClick={() => setModelOpen(!modelOpen)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-black/5 rounded-full text-foreground/70 hover:bg-black/10"
+                              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm bg-black/5 rounded-full text-foreground/70 hover:bg-black/10"
                           >
-                              {model}
-                              <ChevronDown className="h-3 w-3" />
+                              <span className="truncate max-w-[80px] sm:max-w-[140px]">{model}</span>
+                              <ChevronDown className="h-3 w-3 shrink-0" />
                           </button>
                           {modelOpen && (
                               <div className="absolute bottom-10 right-0 z-20 w-48 rounded-lg border border-black/10 bg-white p-1 shadow-lg">
@@ -1544,6 +1901,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                       )}
                     </div>
                   </div>
+                </div>
                 </div>
               </div>
               {messages.length === 0 && !input.trim() && !barDocked && (
@@ -1604,139 +1962,10 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
             </div>
         )}
 
-        {showPreview && previewUrl && (
+        {previewItem && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 cursor-pointer"
-            onClick={() => setShowPreview(false)}
-          >
-            <div
-              className="relative flex flex-col items-center gap-2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-lg border border-black/10">
-                <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-foreground/50">
-                  Size
-                </span>
-                <label className="flex items-center gap-1.5 text-xs font-medium text-foreground/70">
-                  Length
-                  <input
-                    type="number"
-                    min={1}
-                    value={imgW ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "") {
-                        setImgW(null);
-                        if (keepRatio && naturalDimRef.current) setImgH(null);
-                      } else {
-                        handleImgWidthChange(Math.max(1, parseInt(v) || 1));
-                      }
-                    }}
-                    className="w-16 rounded-md border border-black/10 px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-black/20"
-                  />
-                  px
-                </label>
-                <label className="flex items-center gap-1.5 text-xs font-medium text-foreground/70">
-                  Breadth
-                  <input
-                    type="number"
-                    min={1}
-                    value={imgH ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "") {
-                        setImgH(null);
-                        if (keepRatio && naturalDimRef.current) setImgW(null);
-                      } else {
-                        handleImgHeightChange(Math.max(1, parseInt(v) || 1));
-                      }
-                    }}
-                    className="w-16 rounded-md border border-black/10 px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-black/20"
-                  />
-                  px
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setKeepRatio((v) => !v)}
-                  title={keepRatio ? "Locked: aspect ratio maintained" : "Unlocked: free resize"}
-                  className={`rounded-md p-1.5 transition-colors ${
-                    keepRatio ? "bg-black/10 text-foreground" : "text-foreground/40 hover:text-foreground"
-                  }`}
-                >
-                  {keepRatio ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetImgSize}
-                  className="rounded-md px-2 py-1 text-xs font-medium text-foreground/50 hover:text-foreground hover:bg-black/5 transition-colors"
-                >
-                  Reset
-                </button>
-              </div>
-              <div className="relative">
-                <img
-                  src={previewUrl}
-                  alt="preview"
-                  onLoad={(e) => {
-                    if (!naturalDimRef.current) {
-                      naturalDimRef.current = {
-                        w: e.currentTarget.naturalWidth,
-                        h: e.currentTarget.naturalHeight,
-                      };
-                    }
-                  }}
-                  style={{
-                    width: imgW ? `${imgW}px` : undefined,
-                    height: imgH ? `${imgH}px` : undefined,
-                  }}
-                  className="max-w-[85vw] max-h-[75vh] rounded-2xl"
-                />
-                <button
-                  onClick={() => setShowPreview(false)}
-                  className="absolute -top-3 -right-3 rounded-full bg-white p-1.5 shadow-lg border border-black/10"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {txtPreviewContent !== null && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 cursor-pointer"
-            onClick={() => setTxtPreviewContent(null)}
-          >
-            <div
-              className="relative w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden rounded-2xl bg-white"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-black/10">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileText className="h-4 w-4 text-violet-500 shrink-0" />
-                  <span className="text-sm font-semibold text-foreground truncate">
-                    {droppedFile?.name ?? "prompt.txt"}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setTxtPreviewContent(null)}
-                  className="rounded-full p-1.5 text-foreground/50 hover:text-red-500 hover:bg-black/5 transition-colors"
-                  aria-label="Close preview"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <pre className="flex-1 min-h-0 overflow-auto px-4 py-3 text-[13px] leading-relaxed text-foreground/80 font-mono whitespace-pre-wrap break-words">
-                {txtPreviewContent}
-              </pre>
-            </div>
-          </div>
-        )}
-
-        {filePreview && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 cursor-pointer"
-            onClick={closeFilePreview}
+            onClick={closePreview}
           >
             <div
               className="relative w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden rounded-2xl bg-white"
@@ -1746,46 +1975,132 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                 <div className="flex items-center gap-2 min-w-0">
                   <FileText className="h-4 w-4 text-foreground/60 shrink-0" />
                   <span className="text-sm font-semibold text-foreground truncate">
-                    {filePreview.name}
+                    {previewItem.file.name}
                   </span>
                 </div>
-                <button
-                  onClick={closeFilePreview}
-                  className="rounded-full p-1.5 text-foreground/50 hover:text-red-500 hover:bg-black/5 transition-colors"
-                  aria-label="Close preview"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {previewItem.file.type.startsWith("image/") && (
+                    <div className="flex items-center gap-2 rounded-xl bg-black/[0.04] px-3 py-1.5 border border-black/5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/50">
+                        Size
+                      </span>
+                      <label className="flex items-center gap-1 text-xs font-medium text-foreground/70">
+                        Length
+                        <input
+                          type="number"
+                          min={1}
+                          value={imgW ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "") {
+                              setImgW(null);
+                              if (keepRatio && naturalDimRef.current) setImgH(null);
+                            } else {
+                              handleImgWidthChange(Math.max(1, parseInt(v) || 1));
+                            }
+                          }}
+                          className="w-16 rounded-md border border-black/10 px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-black/20"
+                        />
+                        px
+                      </label>
+                      <label className="flex items-center gap-1 text-xs font-medium text-foreground/70">
+                        Breadth
+                        <input
+                          type="number"
+                          min={1}
+                          value={imgH ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "") {
+                              setImgH(null);
+                              if (keepRatio && naturalDimRef.current) setImgW(null);
+                            } else {
+                              handleImgHeightChange(Math.max(1, parseInt(v) || 1));
+                            }
+                          }}
+                          className="w-16 rounded-md border border-black/10 px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-black/20"
+                        />
+                        px
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setKeepRatio((v) => !v)}
+                        title={keepRatio ? "Locked: aspect ratio maintained" : "Unlocked: free resize"}
+                        className={`rounded-md p-1 transition-colors ${
+                          keepRatio ? "bg-black/10 text-foreground" : "text-foreground/40 hover:text-foreground"
+                        }`}
+                      >
+                        {keepRatio ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetImgSize}
+                        className="rounded-md px-1.5 py-0.5 text-xs font-medium text-foreground/50 hover:text-foreground hover:bg-black/5 transition-colors"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  )}
+                  <button
+                    onClick={closePreview}
+                    className="rounded-full p-1.5 text-foreground/50 hover:text-red-500 hover:bg-black/5 transition-colors"
+                    aria-label="Close preview"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-auto flex items-start justify-start bg-black/[0.02] p-4">
-                {filePreview.type.startsWith("video/") ? (
+              <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center bg-black/[0.02] p-4">
+                {previewItem.file.type.startsWith("image/") ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={previewItem.url}
+                    alt={previewItem.file.name}
+                    onLoad={(e) => {
+                      const { naturalWidth, naturalHeight } = e.currentTarget;
+                      if (!naturalDimRef.current) {
+                        naturalDimRef.current = {
+                          w: naturalWidth,
+                          h: naturalHeight,
+                        };
+                      }
+                      if (imgW === null) setImgW(naturalWidth);
+                      if (imgH === null) setImgH(naturalHeight);
+                    }}
+                    style={{
+                      width: imgW ? `${imgW}px` : undefined,
+                      height: imgH ? `${imgH}px` : undefined,
+                    }}
+                    className="max-w-full max-h-[calc(85vh-140px)] object-contain rounded-lg"
+                  />
+                ) : previewItem.file.type.startsWith("video/") ? (
                   <video
-                    src={filePreview.url}
+                    src={previewItem.url}
                     controls
                     className="max-w-full max-h-[70vh] rounded-lg"
                   />
-                ) : filePreview.type.startsWith("audio/") ? (
-                  <audio src={filePreview.url} controls className="w-full" />
-                ) : filePreview.type === "application/pdf" ||
-                  filePreview.type.startsWith("text/") ? (
+                ) : previewItem.file.type.startsWith("audio/") ? (
+                  <audio src={previewItem.url} controls className="w-full" />
+                ) : previewItem.file.type === "application/pdf" ||
+                  previewItem.file.type.startsWith("text/") ? (
                   <iframe
-                    src={filePreview.url}
-                    title={filePreview.name}
+                    src={previewItem.url}
+                    title={previewItem.file.name}
                     className="w-full h-[70vh] rounded-lg"
                   />
                 ) : (
                   <div className="text-center py-8 w-full">
                     <FileText className="h-12 w-12 mx-auto text-foreground/30" />
                     <p className="mt-3 text-sm font-medium text-foreground break-all px-6">
-                      {filePreview.name}
+                      {previewItem.file.name}
                     </p>
                     <p className="mt-1 text-xs text-foreground/50">
-                      {filePreview.type || "Unknown type"} ·{" "}
-                      {droppedFile ? Math.max(1, Math.round(droppedFile.size / 1024)) : 0} KB
+                      {previewItem.file.type || "Unknown type"} ·{" "}
+                      {Math.max(1, Math.round(previewItem.file.size / 1024))} KB
                     </p>
                     <a
-                      href={filePreview.url}
-                      download={filePreview.name}
+                      href={previewItem.url}
+                      download={previewItem.file.name}
                       className="mt-4 inline-flex items-center gap-2 rounded-full bg-black px-4 py-2 text-sm text-white hover:opacity-80 transition-opacity"
                     >
                       <Download className="h-4 w-4" /> Download
@@ -1808,12 +2123,12 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
               className="absolute inset-0"
               onClick={() => !customAdded && setCustomModalOpen(false)}
             />
-            <div className="relative w-full max-w-sm rounded-2xl border border-black/10 bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="relative w-full max-w-lg rounded-2xl border border-black/10 bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">Add Custom Connector</h3>
                   <p className="mt-1 text-xs text-foreground/50">
-                    Connect any service with a name and URL.
+                    Connect any service with a name, MCP URL and logo.
                   </p>
                 </div>
                 <button
@@ -1835,6 +2150,76 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
               ) : (
                 <>
                   <div className="mt-4 space-y-3">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => customLogoInputRef.current?.click()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") customLogoInputRef.current?.click();
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setCustomLogoDragOver(true);
+                      }}
+                      onDragLeave={() => setCustomLogoDragOver(false)}
+                      onDrop={handleCustomLogoDrop}
+                      className={`flex h-14 items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
+                        customLogoDragOver
+                          ? "border-violet-400 bg-violet-50"
+                          : customLogo
+                            ? "border-emerald-300 bg-emerald-50/40"
+                            : "border-black/15 bg-[#FAFAFA] hover:border-violet-400 hover:bg-violet-50"
+                      }`}
+                    >
+                      {customLogo ? (
+                        <div className="group relative flex items-center gap-3 px-3">
+                          <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm">
+                            <img src={customLogo} alt="" className="h-full w-full object-contain" />
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                              <ImageIcon className="h-4 w-4 text-white" />
+                            </span>
+                          </div>
+                          <div className="text-left">
+<p className="text-xs font-medium text-emerald-700">Logo added</p>
+                            <p className="text-[11px] text-foreground/45">
+                              Drop a new image or click to replace
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCustomLogo("");
+                            }}
+                            aria-label="Remove logo"
+                            className="rounded p-1 text-foreground/30 hover:bg-black/5 hover:text-red-500 transition-colors"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2.5 px-4">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-white">
+                            <ImageIcon className="h-3.5 w-3.5 text-foreground/40" />
+                          </span>
+                          <div className="text-left">
+                            <p className="text-xs font-medium text-foreground/70">
+                              {customLogoDragOver ? "Drop to add logo" : "Add logo"}
+                            </p>
+                            <p className="text-[11px] text-foreground/40">
+                              Drag &amp; drop an image, or click to browse
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      ref={customLogoInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleCustomLogoUpload}
+                      className="hidden"
+                    />
                     <input
                       value={customName}
                       onChange={(e) => setCustomName(e.target.value)}
@@ -1846,9 +2231,52 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                       value={customUrl}
                       onChange={(e) => setCustomUrl(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && addCustomConnector()}
-                      placeholder="URL (e.g. https://example.com)"
+                      placeholder="MCP URL (e.g. http://127.0.0.1:3000)"
                       className="w-full rounded-lg border border-black/10 bg-[#FAFAFA] px-3 py-2 text-sm text-foreground outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all"
                     />
+                    <div className="rounded-xl border border-black/10 bg-[#FAFAFA] p-3">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground/70">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                        Permissions
+                        {customPermissions.length > 0 && (
+                          <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                            {customPermissions.length}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-foreground/45">
+                        Grant the connector access to specific capabilities.
+                      </p>
+                      <div className="mt-2.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                        {CUSTOM_CONNECTOR_PERMISSIONS.map((p) => {
+                          const checked = customPermissions.includes(p.id);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => toggleCustomPermission(p.id)}
+                              className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                                checked
+                                  ? "border-emerald-300 bg-emerald-50"
+                                  : "border-black/10 bg-white hover:border-black/20"
+                              }`}
+                            >
+                              <span
+                                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                                  checked ? "border-emerald-500 bg-emerald-500" : "border-black/20 bg-white"
+                                }`}
+                              >
+                                {checked && <Check className="h-3 w-3 text-white" />}
+                              </span>
+                              <span>
+                                <span className="block text-xs font-medium text-foreground/80">{p.label}</span>
+                                <span className="block text-[10px] text-foreground/45">{p.desc}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                   <div className="mt-5 flex justify-end gap-2">
                     <button

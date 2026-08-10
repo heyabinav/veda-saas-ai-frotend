@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import { Check, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import Script from "next/script";
-import { supabase } from "@/integrations/supabase/client";
+import { apiRequest } from "@/lib/api";
 
 const plans = [
   {
@@ -12,7 +11,7 @@ const plans = [
     price: 200,
     amount: 20000,
     features: [
-      "Apex 2.2 (Thinking Model)",
+      "Apex 2.2 (Low) Model",
       "Unlimited Image Generation",
       "300 Credits/day Video Generation",
       "Unlimited Logo Generation",
@@ -31,6 +30,7 @@ const plans = [
     amount: 50000,
     features: [
       "Everything in Pro",
+      "Apex 2.2 (High) Model",
       "Text-to-Animation",
       "Image-to-Animation",
       "Video-to-Animation",
@@ -46,6 +46,7 @@ const plans = [
     amount: 100000,
     features: [
       "Everything in Max",
+      "ApexCode 3 (Apex 3.0) Model",
       "Home Map Generator",
       "Live Screen Share",
       "Home Design Selector",
@@ -57,6 +58,7 @@ const plans = [
 
 export default function UpgradePage() {
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
+  const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -65,59 +67,83 @@ export default function UpgradePage() {
     document.body.appendChild(script);
   }, []);
 
-  const handlePayment = async (plan: { name: string; amount: number }) => {
-    console.log("Razorpay Key ID from env:", process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID);
-    
-    if (!process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID) {
+  const handlePayment = async (plan: { name: string; price: number; amount: number }) => {
+    setProcessing(true);
+    try {
+      if (!process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID) {
         alert("Razorpay Key ID is missing. Please add it to your .env.local file.");
         return;
-    }
+      }
 
-    if (!(window as any).Razorpay) {
+      if (!(window as any).Razorpay) {
         alert("Razorpay SDK not loaded.");
         return;
-    }
+      }
 
-    const options = {
-      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID, 
-      amount: plan.amount, 
-      currency: "INR",
-      name: "VedaApex",
-      description: `${plan.name} Plan Subscription`,
-      handler: async function (response: any) {
-        try {
-            const { data } = await supabase.auth.getSession();
-            const token = data.session?.access_token;
+      // 1) Create backend order first
+      const orderRes = await apiRequest("/api/v1/payments/orders", {
+        method: "POST",
+        timeoutMs: 30000,
+        body: JSON.stringify({
+          plan: plan.name,
+          amount: plan.price,
+          currency: "INR",
+        }),
+      });
+      const orderData = await orderRes.json();
+      const order = orderData?.data && typeof orderData.data === "object" ? orderData.data : orderData;
+      const orderId = order?.order_id || order?.id;
 
-            const res = await fetch("https://vedaapex-vedaapex.hf.space/api/v1/payments/verify", {
-                method: "POST",
-                headers: { 
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}` 
-                },
-                body: JSON.stringify({
-                    razorpay_payment_id: response.razorpay_payment_id,
-                    plan: plan.name
-                }),
+      if (!orderId) {
+        throw new Error(order?.message || "Failed to create payment order");
+      }
+
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: plan.amount,
+        currency: "INR",
+        name: "VedaApex",
+        description: `${plan.name} Plan Subscription`,
+        order_id: orderId,
+        handler: async function (response: any) {
+          try {
+            const verifyRes = await apiRequest("/api/v1/payments/verify-payment", {
+              method: "POST",
+              timeoutMs: 30000,
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                plan: plan.name,
+              }),
             });
-
-            if (res.ok) {
-                alert(`Success! You are now on the ${plan.name} plan.`);
-                window.location.href = "/";
+            if (verifyRes.ok) {
+              const verifyData = await verifyRes.json().catch(() => ({}));
+              const payload = verifyData?.data && typeof verifyData.data === "object" ? verifyData.data : verifyData;
+              const userPlan = payload?.plan || plan.name.toLowerCase();
+              document.cookie = `user_plan=${encodeURIComponent(userPlan)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+              alert(`Success! You are now on the ${plan.name} plan.`);
+              window.location.href = "/";
             } else {
-                alert("Payment verified, but plan update failed.");
+              alert("Payment verified, but plan update failed.");
             }
-        } catch (error) {
+          } catch (error) {
             console.error(error);
             alert("Error confirming payment.");
-        }
-      },
-      prefill: { name: "User", email: "user@example.com" },
-      theme: { color: "#3399cc" },
-    };
+          }
+        },
+        prefill: { name: "User", email: "user@example.com" },
+        theme: { color: "#3399cc" },
+      };
 
-    const rzp = new (window as any).Razorpay(options);
-    rzp.open();
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message || "Could not start payment. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   return (

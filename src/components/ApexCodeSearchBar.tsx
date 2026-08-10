@@ -1,7 +1,9 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Plus,
   Image as ImageIcon,
@@ -21,7 +23,25 @@ import {
   NotebookText,
   UploadCloud,
   Loader2,
+  ChevronDown,
+  Check,
 } from "lucide-react";
+
+const APEXCODE_MODELS = [
+  { name: "Apex 2.1", price: "free", plan: "Free" },
+  { name: "Apex 2.2 (Low)", price: "200", plan: "Pro" },
+  { name: "Apex 2.2 (High)", price: "500", plan: "Max" },
+  { name: "ApexCode 3 (Apex 3.0)", price: "1000", plan: "Ultra" },
+];
+
+const canAccessModel = (plan: string | null, price: string) => {
+  if (price === "free") return true;
+  if (!plan) return false;
+  if (price === "200") return ["200", "500", "1000"].includes(plan);
+  if (price === "500") return ["500", "1000"].includes(plan);
+  if (price === "1000") return plan === "1000";
+  return false;
+};
 
 const FEELING_LUCKY_PROMPTS = [
   "Build a full-stack Next.js web application with real-time Supabase auth and dark theme",
@@ -60,7 +80,7 @@ const addMenuItems: AddMenuItem[] = [
 ];
 
 interface ApexCodeSearchBarProps {
-  onGenerate?: (prompt: string) => void;
+  onGenerate?: (prompt: string, model: string) => void;
   showQuickHints?: boolean;
 }
 
@@ -102,6 +122,7 @@ function getFileIcon(file: AttachedFile): React.ReactNode {
 }
 
 export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }: ApexCodeSearchBarProps) {
+  const router = useRouter();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -110,6 +131,45 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
   const [isFocused, setIsFocused] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [model, setModel] = useState("Apex 2.1");
+  const [plan, setPlan] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const readPlan = async () => {
+      let p: string | null = null;
+      try {
+        const match = document.cookie.split("; ").find((c) => c.startsWith("user_plan="));
+        if (match) p = decodeURIComponent(match.slice("user_plan=".length));
+      } catch {
+        // ignore cookie read errors
+      }
+      if (!p) {
+        try {
+          const { data } = await supabase.auth.getSession();
+          p = data.session?.user?.user_metadata?.plan ?? null;
+        } catch {
+          // ignore session read errors
+        }
+      }
+      if (mounted) {
+        setPlan(p);
+        // Free users start on the free model; higher plans get their best model as the default.
+        setModel((current) => {
+          if (current !== "Apex 2.1") return current;
+          if (p === "1000") return "ApexCode 3 (Apex 3.0)";
+          if (p === "500") return "Apex 2.2 (High)";
+          if (p === "200") return "Apex 2.2 (Low)";
+          return "Apex 2.1";
+        });
+      }
+    };
+    void readPlan();
+    return () => {
+      mounted = false;
+    };
+  }, []);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [previewFile, setPreviewFile] = useState<AttachedFile | null>(null);
@@ -269,12 +329,12 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
     if (!prompt || isGenerating) return;
     setIsGenerating(true);
     if (onGenerate) {
-      onGenerate(prompt);
+      onGenerate(prompt, model);
     }
     setValue("");
     setAttachedFiles([]);
     setTimeout(() => setIsGenerating(false), 1700);
-  }, [value, attachedFiles, isGenerating, onGenerate]);
+  }, [value, attachedFiles, isGenerating, onGenerate, model]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -336,6 +396,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                     onClick={() => setPreviewFile(file)}
                   >
                     {file.isImage && file.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={file.url}
                         alt={file.name}
@@ -395,7 +456,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
 
             {/* Bottom Control Bar Inside Box */}
           <div className="flex items-center justify-between pt-2">
-            {/* Left Icons: Mic and Plus */}
+            {/* Left Icons: Plus and Model */}
             <div className="flex items-center gap-2">
               {/* Plus Menu Button */}
               <div className="relative">
@@ -441,6 +502,89 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                   )}
                 </AnimatePresence>
               </div>
+
+              {/* Model Selector */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setModelOpen(!modelOpen)}
+                  title="Select AI model"
+                  className="flex items-center gap-1.5 rounded-full bg-black/5 hover:bg-black/10 text-foreground/70 hover:text-foreground border border-black/5 px-2.5 py-2 md:px-3 md:py-2.5 transition-colors"
+                >
+                  <span className="hidden sm:inline text-xs md:text-sm font-semibold truncate max-w-[90px]">
+                    {model}
+                  </span>
+                  <ChevronDown
+                    className={`h-3 w-3 shrink-0 transition-transform duration-200 ${modelOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+
+                <AnimatePresence>
+                  {modelOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setModelOpen(false)}
+                      />
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute left-0 bottom-12 z-50 w-56 overflow-hidden rounded-2xl bg-white border border-black/10 p-1.5 shadow-2xl"
+                      >
+                        <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-foreground/40">
+                          Model
+                        </p>
+                        {APEXCODE_MODELS.map((m) => {
+                          const allowed = canAccessModel(plan, m.price);
+                          return (
+                            <button
+                              key={m.name}
+                              type="button"
+                              onClick={() => {
+                                setModelOpen(false);
+                                if (allowed) {
+                                  setModel(m.name);
+                                } else {
+                                  router.push("/upgrade");
+                                }
+                              }}
+                              className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs md:text-sm font-medium transition-colors ${
+                                model === m.name && allowed
+                                  ? "bg-blue-500/10 text-blue-600"
+                                  : "text-foreground/80 hover:bg-black/5 hover:text-foreground"
+                              }`}
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="truncate">{m.name}</span>
+                                {m.name === "ApexCode 3 (Apex 3.0)" && (
+                                  <span className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-600">
+                                    New
+                                  </span>
+                                )}
+                              </span>
+                              {model === m.name && allowed ? (
+                                <Check className="h-4 w-4 shrink-0 text-blue-600" />
+                              ) : allowed ? (
+                                <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-foreground/35">
+                                  {m.plan}
+                                </span>
+                              ) : (
+                                <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-600">
+                                  <Lock className="h-2.5 w-2.5" />
+                                  {m.plan}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+
             </div>
 
             {/* Hidden file input for the add menu */}
@@ -481,20 +625,25 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
 
       {/* Quick Hint Chips */}
       {showQuickHints && (
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          {QUICK_HINTS.map((hint) => (
-            <button
-              key={hint}
-              type="button"
-              onClick={() => {
-                setValue(hint);
-                if (textareaRef.current) textareaRef.current.focus();
-              }}
-              className="rounded-full border border-black/10 px-3 py-1 text-[12px] text-foreground/55 transition-colors hover:bg-black/5 hover:text-foreground"
-            >
-              {hint}
-            </button>
-          ))}
+        <div className="mt-4 w-full">
+          <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45 md:text-[12px]">
+            Try a starter prompt
+          </p>
+          <div className="flex w-full gap-2 overflow-x-auto pb-1 md:flex-wrap md:justify-center md:overflow-visible md:pb-0">
+            {QUICK_HINTS.map((hint) => (
+              <button
+                key={hint}
+                type="button"
+                onClick={() => {
+                  setValue(hint);
+                  if (textareaRef.current) textareaRef.current.focus();
+                }}
+                className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-[12px] font-medium text-white/75 transition-all hover:border-blue-400/40 hover:bg-blue-500/10 hover:text-white hover:shadow-[0_0_16px_rgba(59,130,246,0.12)]"
+              >
+                {hint}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -603,6 +752,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                         Reset
                       </button>
                     </div>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={previewFile.url}
                       alt={previewFile.name}
@@ -663,3 +813,4 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
     </div>
   );
 }
+

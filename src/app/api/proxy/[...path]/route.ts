@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://vedaapex-vedaapex.hf.space";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://vedaapex-saas-ai.onrender.com";
 
 async function handleProxy(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const resolvedParams = await params;
@@ -35,9 +35,14 @@ async function handleProxy(req: NextRequest, { params }: { params: Promise<{ pat
     }
   }
 
-  // 35s timeout for backend server request
+  // Timeout for the backend request. Video generation can take 2+ minutes, so
+  // wait up to ~5 minutes. NOTE: this only helps if the backend's own Render
+  // service has its "Request Timeout" raised too (Settings -> Advanced ->
+  // Request Timeout, max 300s, requires a paid instance). On Render's free
+  // tier the gateway still hard-caps every request at 60s with a 504.
+  const BACKEND_TIMEOUT_MS = 290000;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 35000);
+  const timeoutId = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
 
   try {
     const response = await fetch(backendUrl, {
@@ -51,6 +56,13 @@ async function handleProxy(req: NextRequest, { params }: { params: Promise<{ pat
 
     const responseHeaders = new Headers();
     response.headers.forEach((value, key) => {
+      // The fetch() below already decompresses the body, so re-forwarding the
+      // original content-encoding / content-length would corrupt the response
+      // the browser receives (broken error bodies, e.g. showing "{}").
+      const lower = key.toLowerCase();
+      if (lower === "content-encoding" || lower === "content-length" || lower === "transfer-encoding") {
+        return;
+      }
       responseHeaders.set(key, value);
     });
 

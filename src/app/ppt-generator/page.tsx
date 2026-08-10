@@ -2,18 +2,14 @@
 
 import { useState, useRef, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
+import PptPreview, { fetchFileBytes, getFileName } from "@/components/PptPreview";
 import {
-  PanelLeft,
   FileText,
   Download,
-  Share2,
   RefreshCw,
-  Info,
-  ChevronDown,
-  Plus,
   Presentation,
-  X,
 } from "lucide-react";
+import { apiRequest } from "@/lib/api";
 
 type PPTGeneration = {
   id: string;
@@ -28,6 +24,8 @@ export default function PPTGenerator() {
   const [topic, setTopic] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPPT, setGeneratedPPT] = useState<boolean>(false);
+  const [pptUrl, setPptUrl] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [slideCount, setSlideCount] = useState(10);
   const [theme, setTheme] = useState("Professional");
   const [history, setHistory] = useState<PPTGeneration[]>([]);
@@ -73,14 +71,84 @@ export default function PPTGenerator() {
     localStorage.setItem("ppt_generations", JSON.stringify(newHistory));
   };
 
-  const handleGenerate = () => {
+  const handleDownload = async () => {
+    if (!pptUrl || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      if (pptUrl.startsWith("blob:")) {
+        const a = document.createElement("a");
+        a.href = pptUrl;
+        a.download = "presentation.pptx";
+        a.click();
+      } else {
+        const bytes = await fetchFileBytes(pptUrl);
+        const blob = new Blob([bytes], {
+          type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = getFileName(pptUrl);
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      }
+    } catch (error) {
+      console.error("PPT download failed:", error);
+      window.open(pptUrl, "_blank");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleGenerate = async () => {
     if (!topic.trim()) return;
     setIsGenerating(true);
-    setTimeout(() => {
+    try {
+      const response = await apiRequest("/api/v1/ai/generate/ppt", {
+        method: "POST",
+        timeoutMs: 120000,
+        body: JSON.stringify({
+          topic,
+          slides: slideCount,
+          theme,
+          tier: 1,
+          provider: "auto",
+        }),
+      });
+
+      const contentType = response.headers.get("content-type") || "";
+      let pptUrl: string | null = null;
+
+      if (contentType.includes("application/json") || contentType.includes("+json")) {
+        const data = await response.json();
+        const nested = data?.data && typeof data.data === "object" ? data.data : data;
+        pptUrl =
+          nested.result ||
+          nested.url ||
+          nested.file_url ||
+          nested.download_url ||
+          nested.output ||
+          null;
+      } else {
+        const blob = await response.blob();
+        if (blob.size > 0) {
+          pptUrl = URL.createObjectURL(blob);
+        }
+      }
+
+      if (!pptUrl) {
+        throw new Error("No presentation returned from generation response");
+      }
+
       setGeneratedPPT(true);
+      setPptUrl(pptUrl);
       saveToHistory(topic, slideCount, theme);
+    } catch (error) {
+      console.error("PPT generation failed:", error);
+      throw error;
+    } finally {
       setIsGenerating(false);
-    }, 4000);
+    }
   };
 
   return (
@@ -94,6 +162,16 @@ export default function PPTGenerator() {
             <h1 className="text-2xl font-semibold tracking-tight text-foreground/90">PPT Generator</h1>
             <p className="text-sm text-foreground/50">Create professional presentations with Apex VedaS Deck</p>
           </div>
+          {generatedPPT && pptUrl && (
+            <button
+              onClick={handleDownload}
+              disabled={isDownloading}
+              className="flex shrink-0 items-center gap-2 rounded-xl bg-foreground px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {isDownloading ? "Downloading..." : "Download .pptx"}
+            </button>
+          )}
         </div>
 
         <div className="flex flex-1 flex-col lg:flex-row gap-6 px-4 lg:px-8 pb-8 overflow-y-auto lg:overflow-hidden">
@@ -121,16 +199,8 @@ export default function PPTGenerator() {
 
           {/* Right Column - Preview Area */}
           <div className="flex-1 rounded-3xl border border-black/5 bg-white shadow-sm overflow-hidden flex flex-col min-h-[400px]">
-             {generatedPPT ? (
-                <div className="flex-1 p-4 lg:p-8 flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
-                   <div className="w-full max-w-lg aspect-video bg-white rounded-xl shadow-xl flex flex-col items-center justify-center p-4 lg:p-8 border border-black/10 text-center">
-                      <h2 className="text-xl lg:text-3xl font-bold text-foreground mb-4">{topic}</h2>
-                      <div className="text-xs lg:text-sm text-foreground/60">Professional Theme</div>
-                   </div>
-                   <button className="mt-8 flex items-center gap-2 bg-foreground text-white px-6 py-2 rounded-lg hover:opacity-90">
-                      <Download className="h-4 w-4" /> Download .pptx
-                   </button>
-                </div>
+             {generatedPPT && pptUrl ? (
+                <PptPreview source={pptUrl} onDownload={handleDownload} />
              ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-foreground/30 font-medium bg-[#FDFDFD]">
                   <FileText className="h-12 w-12 mb-4 opacity-20" />

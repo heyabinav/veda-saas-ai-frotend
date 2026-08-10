@@ -10,6 +10,8 @@ type ChatRequestBody = {
   responseMode?: "structured" | "raw";
   system_prompt?: string;
   context?: Record<string, unknown>;
+  file?: { name: string; type: string; dataUrl: string } | null;
+  files?: { name: string; type: string; dataUrl: string }[] | null;
 };
 
 function getStringValue(value: unknown) {
@@ -51,24 +53,36 @@ export async function POST(req: NextRequest) {
     const systemPrompt = body.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT;
 
     // Map UI model to backend tier:
-    // Apex_2.1 (Free) -> 1
-    // Apex_2.2(Low) -> 2
-    // Apex_2.2(High) -> 3
-    // Apex_2.2(beta) -> 4
+    // Apex 2.1 (Free) -> 1
+    // Apex 2.2 (Low) -> 2
+    // Apex 2.2 (High) -> 3
+    // Apex 3.0 Ultra / ApexCode 3 (Deep Coding Reasoning) -> 4
     let tier = 1;
     if (body.model?.includes("Low")) {
       tier = 2;
     } else if (body.model?.includes("High")) {
       tier = 3;
-    } else if (body.model?.includes("beta")) {
+    } else if (
+      body.model?.includes("Ultra") ||
+      body.model?.includes("beta") ||
+      body.model?.includes("ApexCode 3")
+    ) {
       tier = 4;
     }
+
+    const files =
+      body.files && body.files.length > 0
+        ? body.files
+        : body.file
+          ? [body.file]
+          : undefined;
 
     const payload = {
       prompt: body.message,
       system_prompt: systemPrompt,
       tier,
       provider: "auto",
+      files,
     };
 
     console.log("DEBUG: Sending request to /api/v1/ai/generate/text with payload:", payload);

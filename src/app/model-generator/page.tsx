@@ -5,6 +5,7 @@ import * as THREE from "three";
 import Sidebar from "@/components/Sidebar";
 import { PanelLeft, Box, Wand2, Download, Upload, RotateCcw, Palette, Layers, History, X, FileImageIcon } from "lucide-react";
 import { useDropzone } from "react-dropzone";
+import { apiRequest } from "@/lib/api";
 
 export default function ModelGenerator() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -13,6 +14,55 @@ export default function ModelGenerator() {
   const [prompt, setPrompt] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [scene, setScene] = useState<THREE.Scene | null>(null);
+  const [modelUrl, setModelUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setError(null);
+    if (!prompt.trim() && !file) return;
+    setIsGenerating(true);
+    try {
+      const formData = new FormData();
+      if (file) formData.append("file", file);
+      formData.append("prompt", prompt.trim());
+
+      const response = await apiRequest("/api/v1/ai/generate/3d", {
+        method: "POST",
+        timeoutMs: 120000,
+        body: formData,
+      });
+
+      const contentType = response.headers.get("content-type") || "";
+      let url: string | null = null;
+
+      if (contentType.includes("application/json") || contentType.includes("+json")) {
+        const data = await response.json();
+        const nested = data?.data && typeof data.data === "object" ? data.data : data;
+        url =
+          nested.result ||
+          nested.url ||
+          nested.model_url ||
+          nested.glb_url ||
+          nested.output ||
+          null;
+      } else {
+        const blob = await response.blob();
+        if (blob.size > 0) {
+          url = URL.createObjectURL(blob);
+        }
+      }
+
+      if (!url) {
+        throw new Error("No 3D model returned from generation response");
+      }
+      setModelUrl(url);
+    } catch (err: any) {
+      console.error("3D model generation failed:", err);
+      setError(err?.message || "3D model generation failed. Please try again.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const onDrop = (acceptedFiles: File[]) => {
     setFile(acceptedFiles[0]);
@@ -117,18 +167,19 @@ export default function ModelGenerator() {
                   placeholder="Describe your model..."
                 />
                 <button 
-                  onClick={() => setIsGenerating(!isGenerating)}
+                  onClick={handleGenerate}
                   className="w-full bg-foreground text-white py-3 rounded-xl font-medium hover:opacity-90 flex items-center justify-center gap-2"
                 >
                   <Wand2 className="h-4 w-4" /> {isGenerating ? "Generating..." : "Generate Model"}
                 </button>
+                {error && <p className="text-xs text-red-500">{error}</p>}
              </div>
           </div>
         </div>
 
         <div className="mt-8">
           <h2 className="text-lg font-bold mb-4 flex items-center gap-2"><History className="h-5 w-5" /> Recent Generations</h2>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[1,2,3,4].map(i => <div key={i} className="h-32 bg-white border border-black/10 rounded-xl" />)}
           </div>
         </div>

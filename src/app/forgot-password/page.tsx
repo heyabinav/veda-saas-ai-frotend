@@ -19,11 +19,25 @@ export default function ForgotPasswordPage() {
     setLoading(true);
 
     try {
+      const res = await fetch("/api/proxy/api/v1/email/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        setLoading(false);
+        setSent(true);
+        return;
+      }
+
+      // Fallback to Supabase password reset if backend endpoint isn't available
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${typeof window !== "undefined" ? window.location.origin : ""}/reset-password`,
       });
       setLoading(false);
-      if (error) return setError(error.message);
+      if (error) return setError(error.message || data?.detail || "An error occurred. Please try again.");
       setSent(true);
     } catch (err) {
       setLoading(false);

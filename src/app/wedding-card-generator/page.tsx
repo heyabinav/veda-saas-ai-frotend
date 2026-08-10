@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import CanvasGenerator from "@/components/CanvasGenerator";
 import FileUploadDropzone from "@/components/ui/FileUploadDropzone";
 import { Stage, Layer, Text } from "react-konva";
@@ -15,13 +15,27 @@ export default function WeddingCardGenerator() {
   const [venue, setVenue] = useState("");
   const [prompt, setPrompt] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ w: 500, h: 400 });
   const [elements, setElements] = useState([
       { id: "groom", text: "Groom", x: 50, y: 100 },
       { id: "bride", text: "Bride", x: 50, y: 150 },
       { id: "date", text: "Wedding Date", x: 50, y: 200 },
   ]);
-  const handleGenerate = async () => {
-    if (!groom.trim() || !bride.trim()) return;
+  useEffect(() => {
+    const el = canvasWrapRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = Math.min(500, Math.max(280, el.clientWidth - 32));
+      setStageSize({ w, h: Math.round(w * 0.8) });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleGenerate = async () => {    if (!groom.trim() || !bride.trim()) return;
     setIsGenerating(true);
     
     try {
@@ -55,8 +69,8 @@ export default function WeddingCardGenerator() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[#F9F9F9]">
-        <div className="w-[400px] p-8 border-r bg-white flex flex-col gap-4 overflow-y-auto">
+    <div className="flex flex-col lg:flex-row h-screen w-full bg-[#F9F9F9] overflow-hidden">
+        <div className="w-full lg:w-[400px] lg:shrink-0 p-4 lg:p-8 border-b lg:border-b-0 lg:border-r bg-white flex flex-col gap-4 overflow-y-auto">
             <h1 className="text-xl font-bold">Wedding Card Editor</h1>
             <input value={groom} onChange={(e) => setGroom(e.target.value)} placeholder="Groom Name" className="p-3 border rounded-xl" />
             <input value={bride} onChange={(e) => setBride(e.target.value)} placeholder="Bride Name" className="p-3 border rounded-xl" />
@@ -75,8 +89,8 @@ export default function WeddingCardGenerator() {
                 {isGenerating ? "Generating..." : "Generate Design"}
             </button>
         </div>
-        <div className="flex-1 flex items-center justify-center p-12 bg-slate-100">
-            <Stage width={500} height={400} className="border bg-white shadow-lg">
+        <div ref={canvasWrapRef} className="flex-1 flex items-center justify-center p-4 lg:p-12 bg-slate-100 overflow-auto min-h-0">
+            <Stage width={stageSize.w} height={stageSize.h} className="border bg-white shadow-lg max-w-full">
                 <Layer>
                 {elements.map((el) => (
                     <Text key={el.id} text={el.text} x={el.x} y={el.y} draggable fontSize={20} fill="#333" 

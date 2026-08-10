@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
@@ -28,8 +28,22 @@ import ApexCodeSearchBar from "@/components/ApexCodeSearchBar";
 import CodeSyntaxLine from "@/components/CodeSyntaxLine";
 import { THINKING_MESSAGES } from "@/lib/thinking-messages";
 
-/* ─── types ─── */
+/* â”€â”€â”€ types â”€â”€â”€ */
 type GeneratedFile = { path: string; content: string };
+
+type PromptMessage = {
+  id: string;
+  text: string;
+};
+
+type GenerationRecord = {
+  id: string;
+  prompt: string;
+  files: GeneratedFile[];
+  activeFile: string | null;
+  createdAt: number;
+  answer?: string | null;
+};
 
 type TreeNode = {
   name: string;
@@ -38,7 +52,7 @@ type TreeNode = {
   children?: TreeNode[];
 };
 
-/* ─── constants ─── */
+/* â”€â”€â”€ constants â”€â”€â”€ */
 const APP_BUILD_SYSTEM_PROMPT = `You are an expert full-stack developer. Build a complete, production-quality web application based on the user's prompt.
 
 Respond with ONLY a single valid JSON object (no markdown fences, no commentary, nothing else). The JSON shape is exactly:
@@ -95,9 +109,38 @@ const buildFallbackHtml = (prompt: string) => `<!DOCTYPE html>
 </body>
 </html>`;
 
-const STORAGE_KEY = "apexcode_active_prompt";
+function formatAiAnswer(raw: string, parsed: any): string | null {
+  const cleaned = raw.replace(/```json|```/g, "").trim();
+  if (!cleaned) return null;
 
-/* ─── helpers ─── */
+  const files = parsed?.files;
+  if (files && typeof files === "object") {
+    const paths = Object.keys(files);
+    if (paths.length > 0) {
+      const preview = paths.slice(0, 4).join(", ");
+      return `Generated ${paths.length} file${paths.length === 1 ? "" : "s"}: ${preview}${paths.length > 4 ? "…" : ""}`;
+    }
+  }
+
+  const plainText = cleaned
+    .replace(/^\{.*\}$/s, "")
+    .replace(/"/g, "")
+    .replace(/\\n/g, " ")
+    .trim();
+
+  if (!plainText) return "App generated successfully.";
+  return plainText.length > 220 ? `${plainText.slice(0, 220)}…` : plainText;
+}
+
+
+/* â”€â”€â”€ helpers â”€â”€â”€ */
+function getPlanLabel(plan?: string | null): string {
+  if (plan === "1000") return "Ultra";
+  if (plan === "500") return "Max";
+  if (plan === "200") return "Pro";
+  return "Free";
+}
+
 function extractJsonObject(text: string): any {
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
@@ -109,6 +152,7 @@ function extractJsonObject(text: string): any {
     return null;
   }
 }
+
 
 function buildTree(files: GeneratedFile[]): TreeNode[] {
   const root: TreeNode[] = [];
@@ -153,7 +197,7 @@ function iconForPath(path: string) {
   return FILE_ICONS[ext] ?? FileCode;
 }
 
-/* ─── File tree item (dark theme) ─── */
+/* â”€â”€â”€ File tree item (dark theme) â”€â”€â”€ */
 function TreeItem({
   node,
   depth,
@@ -230,7 +274,7 @@ function TreeItem({
   );
 }
 
-/* ─── Typing dots ─── */
+/* â”€â”€â”€ Typing dots â”€â”€â”€ */
 function TypingDots() {
   return (
     <span className="inline-flex items-center gap-1" aria-label="AI is typing">
@@ -248,15 +292,29 @@ function TypingDots() {
   );
 }
 
-/* ══════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MAIN PAGE COMPONENT
-   ══════════════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 export default function ApexCodePage() {
   const [activePrompt, setActivePrompt] = useState<string | null>(null);
+  const [plan] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const match = document.cookie.split("; ").find((c) => c.startsWith("user_plan="));
+    if (!match) return null;
+    try {
+      return decodeURIComponent(match.slice("user_plan=".length));
+    } catch {
+      return match.slice("user_plan=".length);
+    }
+  });
+  const [promptHistory, setPromptHistory] = useState<PromptMessage[]>([]);
+  const [generationHistory, setGenerationHistory] = useState<GenerationRecord[]>([]);
+  const [activeGenerationId, setActiveGenerationId] = useState<string | null>(null);
   const [buildStep, setBuildStep] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [aiAnswer, setAiAnswer] = useState<string | null>(null);
   const [filesOpen, setFilesOpen] = useState(true);
   const [copied, setCopied] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(420);
@@ -266,42 +324,11 @@ export default function ApexCodePage() {
   const isResizing = useRef(false);
   const [typingMessage, setTypingMessage] = useState(THINKING_MESSAGES[0]);
   const [typedCode, setTypedCode] = useState("");
-  const [responseText, setResponseText] = useState("");
-  const [filesVisible, setFilesVisible] = useState(false);
   const codeTypeTimerRef = useRef<number | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  /* ─── Restore from session ─── */
-  useEffect(() => {
-    try {
-      const nav = window.performance.getEntriesByType("navigation")[0] as
-        | PerformanceNavigationTiming
-        | undefined;
-      if (nav && nav.type === "reload") {
-        sessionStorage.removeItem(STORAGE_KEY);
-        return;
-      }
-      const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as {
-          prompt: string;
-          files?: GeneratedFile[];
-          activeFile?: string | null;
-        };
-        if (parsed?.prompt) {
-          setActivePrompt(parsed.prompt);
-          if (parsed.files?.length) {
-            setGeneratedFiles(parsed.files);
-            setActiveFile(parsed.activeFile ?? parsed.files[0].path);
-          }
-          setBuildStep(3);
-        }
-      }
-    } catch {
-      sessionStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
 
-  /* ─── Rotating thinking message ─── */
+  /* â”€â”€â”€ Rotating thinking message â”€â”€â”€ */
   useEffect(() => {
     if (!isGenerating) return;
     let index = Math.floor(Math.random() * THINKING_MESSAGES.length);
@@ -313,7 +340,7 @@ export default function ApexCodePage() {
     return () => window.clearInterval(interval);
   }, [isGenerating]);
 
-  /* ─── Typewriter effect ─── */
+  /* â”€â”€â”€ Typewriter effect â”€â”€â”€ */
   useEffect(() => {
     if (!activeFile) return;
     const file = generatedFiles.find((f) => f.path === activeFile);
@@ -344,25 +371,8 @@ export default function ApexCodePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFile]);
 
-  /* ─── AI response reveal (line by line) ─── */
-  useEffect(() => {
-    if (generatedFiles.length === 0 || isGenerating) return;
-    const full = `Generated ${generatedFiles.length} files successfully. Check the code editor →`;
-    setResponseText("");
-    setFilesVisible(false);
-    let i = 0;
-    const interval = window.setInterval(() => {
-      i += 2;
-      setResponseText(full.slice(0, i));
-      if (i >= full.length) {
-        window.clearInterval(interval);
-        setFilesVisible(true);
-      }
-    }, 20);
-    return () => window.clearInterval(interval);
-  }, [generatedFiles, isGenerating]);
 
-  /* ─── Resize handler ─── */
+  /* â”€â”€â”€ Resize handler â”€â”€â”€ */
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     isResizing.current = true;
@@ -389,8 +399,8 @@ export default function ApexCodePage() {
     window.addEventListener("pointerup", onUp);
   };
 
-  /* ─── Generate app ─── */
-  const generateApp = async (promptText: string) => {
+  /* â”€â”€â”€ Generate app â”€â”€â”€ */
+  const generateApp = async (promptText: string, modelName?: string) => {
     setBuildStep(1);
     setIsGenerating(true);
     try {
@@ -404,7 +414,7 @@ export default function ApexCodePage() {
         headers,
         body: JSON.stringify({
           message: promptText,
-          model: "Apex_2.2(High)",
+          model: modelName ?? "Apex 2.2 (High)",
           intent: "build_app",
           responseMode: "raw",
           system_prompt: APP_BUILD_SYSTEM_PROMPT,
@@ -420,6 +430,8 @@ export default function ApexCodePage() {
             ? data.assistant_response
             : "";
       const parsed = extractJsonObject(raw);
+      const answerText = formatAiAnswer(raw, parsed);
+      setAiAnswer(answerText);
       const filesMap = parsed?.files;
       let files: GeneratedFile[] = [];
       if (filesMap && typeof filesMap === "object") {
@@ -430,12 +442,10 @@ export default function ApexCodePage() {
       if (files.length === 0) {
         throw new Error("Model did not return valid application files");
       }
+      const selectedFile = files.find((f) => f.path.endsWith(".html"))?.path ?? files[0].path;
       setGeneratedFiles(files);
-      setActiveFile(files.find((f) => f.path.endsWith(".html"))?.path ?? files[0].path);
-      sessionStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ prompt: promptText, files, activeFile: files[0].path })
-      );
+      setActiveFile(selectedFile);
+      commitGeneration(promptText, files, selectedFile, answerText);
     } catch (error: any) {
       console.error("App generation failed", error);
       const fallback: GeneratedFile[] = [
@@ -444,40 +454,39 @@ export default function ApexCodePage() {
       ];
       setGeneratedFiles(fallback);
       setActiveFile("index.html");
-      sessionStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ prompt: promptText, files: fallback, activeFile: "index.html" })
-      );
+      setAiAnswer("Fallback preview generated successfully.");
+      commitGeneration(promptText, fallback, "index.html", "Fallback preview generated successfully.");
+
     } finally {
       setBuildStep(3);
       setIsGenerating(false);
     }
   };
 
-  const handleGenerate = (promptText: string) => {
+  const handleGenerate = (promptText: string, modelName?: string) => {
+    const nextHistory = [...promptHistory, { id: `prompt-${Date.now()}`, text: promptText }];
     setActivePrompt(promptText);
+    setPromptHistory(nextHistory);
     setGeneratedFiles([]);
     setActiveFile(null);
     setViewMode("code");
     setBuildStep(1);
     setTypedCode("");
-    setResponseText("");
-    setFilesVisible(false);
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ prompt: promptText }));
+    setAiAnswer(null);
     setTimeout(() => setBuildStep(2), 900);
-    generateApp(promptText);
+    generateApp(promptText, modelName);
   };
 
   const resetApp = () => {
     setActivePrompt(null);
+    setActiveGenerationId(null);
+    setPromptHistory([]);
     setBuildStep(0);
     setGeneratedFiles([]);
     setActiveFile(null);
+    setAiAnswer(null);
     setViewMode("code");
     setTypedCode("");
-    setResponseText("");
-    setFilesVisible(false);
-    sessionStorage.removeItem(STORAGE_KEY);
   };
 
   const tree = useMemo(() => buildTree(generatedFiles), [generatedFiles]);
@@ -507,14 +516,47 @@ export default function ApexCodePage() {
     }
   };
 
-  /* ══════════════════════════════════════════════
+  const commitGeneration = (
+    promptText: string,
+    files: GeneratedFile[],
+    selectedFile: string | null,
+    answer: string | null = null
+  ) => {
+    const record: GenerationRecord = {
+      id: `gen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      prompt: promptText,
+      files,
+      activeFile: selectedFile,
+      createdAt: Date.now(),
+      answer,
+    };
+
+    setGenerationHistory((prev) => [...prev, record].slice(-12));
+
+    setActiveGenerationId(record.id);
+    setActivePrompt(promptText);
+    setGeneratedFiles(files);
+    setActiveFile(selectedFile);
+  };
+
+  const selectGeneration = (record: GenerationRecord) => {
+    setActiveGenerationId(record.id);
+    setActivePrompt(record.prompt);
+    setGeneratedFiles(record.files);
+    setActiveFile(record.activeFile ?? record.files[0]?.path ?? null);
+    setAiAnswer(record.answer ?? null);
+    setBuildStep(3);
+    setIsGenerating(false);
+    setViewMode("code");
+  };
+  /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      RENDER
-     ══════════════════════════════════════════════ */
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
   return (
-    <div className="h-screen w-full bg-[#0a0a14] relative overflow-hidden">
-      {/* ─── HERO (no prompt yet) ─── */}
+    <div className={`w-full bg-[#0a0a14] relative ${!activePrompt ? "min-h-screen overflow-y-auto" : "h-screen overflow-hidden"}`}>
+      {/* â”€â”€â”€ HERO (no prompt yet) â”€â”€â”€ */}
       {!activePrompt ? (
-        <div className="h-full w-full flex flex-col items-center justify-center px-4 md:px-6 relative">
+        <div className="min-h-screen w-full flex flex-col items-center justify-start px-4 md:px-6 py-10 md:py-12 relative md:justify-center">
           {/* Subtle background gradient orbs */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] rounded-full bg-[#7c3aed]/[0.06] blur-[120px]" />
@@ -549,16 +591,15 @@ export default function ApexCodePage() {
           </div>
         </div>
       ) : (
-        /* ─── WORKSPACE (two-panel layout) ─── */
-        <div className="flex h-full w-full overflow-hidden">
-          {/* ═══ LEFT PANEL — Chat / Prompt ═══ */}
+        /* â”€â”€â”€ WORKSPACE (two-panel layout) â”€â”€â”€ */
+<div className="flex flex-col md:flex-row h-full w-full overflow-hidden">
+          {/* LEFT PANEL chat/prompt */}
           <aside
-            style={{ width: sidebarWidth, maxWidth: "100%" }}
-            className="flex shrink-0 flex-col border-r border-white/[0.06] overflow-hidden"
-            // Dark gradient background
+            style={{ ["--panel-w" as any]: `${sidebarWidth}px` }}
+            className="relative flex h-[42vh] md:h-full w-full md:w-[var(--panel-w)] md:max-w-full shrink-0 flex-col border-b md:border-b-0 md:border-r border-white/[0.06] overflow-hidden"
           >
             {/* Panel background */}
-            <div className="absolute inset-0 bg-gradient-to-b from-[#0f0f23] via-[#0d0d1f] to-[#0a0a18]" style={{ width: sidebarWidth, position: 'absolute', top: 0, bottom: 0, left: 0 }} />
+            <div className="absolute inset-0 w-full bg-gradient-to-b from-[#0f0f23] via-[#0d0d1f] to-[#0a0a18] md:w-[var(--panel-w)]" />
 
             {/* Header */}
             <div className="relative z-10 flex items-center gap-2.5 px-5 pt-5 pb-3">
@@ -578,102 +619,102 @@ export default function ApexCodePage() {
 
             {/* Scrollable chat area */}
             <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-3 pt-3">
-              {/* User prompt bubble — right side */}
-              <div className="apexcode-fade-in flex justify-end">
-                <div className="flex max-w-[85%] flex-col items-end">
-                  <span className="mb-1 text-[11px] font-medium text-[#64748b]">
-                    You
-                  </span>
-                  <div className="px-1 py-2">
-                    <p className="text-[13px] text-[#e2e8f0] leading-relaxed text-right">{activePrompt}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* AI Thinking animation — left side */}
-              {isGenerating && (
-                <div className="apexcode-fade-in mt-5">
-                  <div className="flex items-start">
-                      <div className="max-w-[85%]">
-                        <span className="mb-1 block text-[11px] font-medium text-[#64748b] pt-0.5">ApexCode AI</span>
-                        <div className="px-1 py-2">
-                          <TypingDots />
-                          <p className="mt-2 text-[11px] text-[#64748b] leading-snug">
-                            {typingMessage}
-                          </p>
-                        </div>
+              <div className="space-y-4">
+                {generationHistory.map((record, index) => {
+                  const isActive = record.id === activeGenerationId;
+                  return (
+                    <div key={record.id} className={`apexcode-fade-in ${index > 0 ? "pt-2" : ""}`}>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-medium text-[#64748b]">You</span>
+                        <span className={`text-[9px] font-semibold uppercase tracking-[0.12em] ${
+                          isActive ? "text-[#c4b5fd]" : "text-[#64748b]"
+                        }`}>
+                          {isActive ? "Active" : "Saved"}
+                        </span>
                       </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Generation complete — left side */}
-              {generatedFiles.length > 0 && !isGenerating && (
-                <div className="mt-5">
-                  <div className="flex items-start">
-                    <div className="max-w-[85%]">
-                      <span className="mb-1 block text-[11px] font-medium text-[#64748b] pt-0.5">ApexCode AI</span>
-                      <div className="px-1 py-2">
-                        <p className="flex items-center gap-1.5 text-[13px] text-[#e2e8f0] leading-relaxed">
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-                          <span>{responseText}</span>
-                          {!filesVisible && (
-                            <span className="inline-block h-4 w-[2px] bg-[#a78bfa] caret-blink ml-0.5 rounded-full" />
-                          )}
+                      <div className="flex justify-end">
+                        <p className="max-w-[85%] text-right text-[13px] leading-relaxed text-[#e2e8f0]">
+                          {record.prompt}
                         </p>
-                        {filesVisible && (
-                          <div className="flex flex-col gap-1.5 mt-3">
-                            {generatedFiles.map((f, i) => (
+                      </div>
+
+                      <div className="mt-3 flex items-start gap-2">
+                        <span className="mt-1 text-[11px] font-medium text-[#64748b]">ApexCode AI</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] leading-relaxed text-[#e2e8f0]">
+                            <CheckCircle2 className="mr-1 inline-block h-4 w-4 align-[-2px] text-emerald-400" />
+                            {record.files.length} files generated
+                          </p>
+                          <div className="mt-2 space-y-1.5">
+                            {record.files.map((file, fileIndex) => (
                               <button
-                                key={f.path}
-                                onClick={() => setActiveFile(f.path)}
-                                style={{ animationDelay: `${i * 250}ms` }}
-                                className={`apexcode-fade-in flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[12px] font-mono transition-colors ${
-                                  activeFile === f.path
-                                    ? "bg-[#7c3aed]/20 text-[#c4b5fd]"
-                                    : "bg-white/[0.04] text-[#94a3b8] hover:bg-white/[0.07] hover:text-[#e2e8f0]"
-                                }`}
+                                key={file.path}
+                                type="button"
+                                onClick={() => selectGeneration(record)}
+                                style={{ animationDelay: `${fileIndex * 120}ms` }}
+                                className="apexcode-fade-in block w-full text-left text-[11px] font-mono text-[#94a3b8] transition-colors hover:text-[#e2e8f0]"
                               >
-                                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
-                                  activeFile === f.path
-                                    ? "bg-[#7c3aed]/30 text-[#c4b5fd]"
-                                    : "bg-white/[0.06] text-[#64748b]"
-                                }`}>
-                                  {i + 1}
-                                </span>
-                                <FileCode className="h-3.5 w-3.5 shrink-0" />
-                                <span className="flex-1 text-left truncate">{f.path}</span>
+                                <span className="mr-2 text-[#475569]">{fileIndex + 1}.</span>
+                                <span className="break-all">{file.path}</span>
                               </button>
                             ))}
                           </div>
-                        )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {isGenerating && (
+                  <div className="apexcode-fade-in">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1 text-[11px] font-medium text-[#64748b]">ApexCode AI</span>
+                      <div className="max-w-[85%]">
+                        <TypingDots />
+                        <p className="mt-2 text-[11px] leading-snug text-[#64748b]">
+                          {typingMessage}
+                        </p>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+              <div ref={chatEndRef} />
             </div>
 
             {/* Bottom: pinned search bar */}
-            <div className="relative z-10 shrink-0 border-t border-white/[0.06] bg-[#0a0a18]/80 backdrop-blur-md p-3">
+            <div className="relative z-10 shrink-0 border-t border-white/[0.06] bg-[#0a0a18]/80 backdrop-blur-md p-3 space-y-3">
+              {aiAnswer ? (
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-3 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#c4b5fd]">
+                      AI answer
+                    </span>
+                    <span className="text-[10px] text-[#64748b]">Latest response</span>
+                  </div>
+                  <p className="max-h-[120px] overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-6 text-[#e2e8f0]">
+                    {aiAnswer}
+                  </p>
+                </div>
+              ) : null}
               <ApexCodeSearchBar onGenerate={handleGenerate} showQuickHints={false} />
             </div>
           </aside>
 
-          {/* ═══ DRAG RESIZER ═══ */}
+          {/* â•â•â• DRAG RESIZER â•â•â• */}
           <div
             onPointerDown={startResize}
             title="Drag to resize"
-            className="hidden md:flex w-[6px] shrink-0 cursor-col-resize items-center justify-center bg-transparent group touch-none relative z-20"
+            className="hidden md:flex w-[6px] shrink-0 -mx-[3px] cursor-col-resize items-center justify-end pr-px bg-transparent group touch-none relative z-20"
           >
             {/* Visible handle pill */}
-            <div className="h-12 w-[3px] rounded-full bg-white/[0.08] transition-all duration-200 group-hover:bg-[#7c3aed]/60 group-hover:h-16 group-hover:w-[4px] group-hover:shadow-[0_0_12px_rgba(124,58,237,0.3)] group-active:bg-[#3b82f6]/70 group-active:shadow-[0_0_16px_rgba(59,130,246,0.4)]" />
+            <div className="mr-[1px] h-12 w-[3px] rounded-full bg-white/[0.08] transition-all duration-200 group-hover:bg-[#7c3aed]/60 group-hover:h-16 group-hover:w-[4px] group-hover:shadow-[0_0_12px_rgba(124,58,237,0.3)] group-active:bg-[#3b82f6]/70 group-active:shadow-[0_0_16px_rgba(59,130,246,0.4)]" />
           </div>
 
-          {/* ═══ RIGHT PANEL — Workspace ═══ */}
+          {/* â•â•â• RIGHT PANEL â€” Workspace â•â•â• */}
           <main className="relative flex flex-1 flex-col min-w-0 bg-[#0c0c1a] overflow-hidden">
-            {/* Top toolbar */}
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] bg-[#0e0e1e]/80 backdrop-blur-md shrink-0">
+{/* Top toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2.5 border-b border-white/[0.06] bg-[#0e0e1e]/80 backdrop-blur-md shrink-0">
               {/* Left: View mode tabs */}
               <div className="flex items-center gap-1 rounded-xl bg-white/[0.04] border border-white/[0.06] p-1">
                 <button
@@ -795,10 +836,10 @@ export default function ApexCodePage() {
             </div>
 
             {/* Content area: Explorer + Code/Preview */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
               {/* File Explorer sidebar */}
               {filesOpen && (
-                <aside className="w-56 lg:w-60 shrink-0 border-r border-white/[0.06] bg-[#0b0b19] overflow-y-auto flex flex-col">
+                <aside className="w-full lg:w-56 lg:w-60 lg:shrink-0 lg:border-r border-white/[0.06] bg-[#0b0b19] overflow-y-auto flex flex-col max-h-44 lg:max-h-none">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
                     <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#64748b] flex items-center gap-1.5">
                       <Files className="h-3.5 w-3.5" />
@@ -808,6 +849,8 @@ export default function ApexCodePage() {
                       {generatedFiles.length} files
                     </span>
                   </div>
+
+
                   <div className="flex-1 p-2 space-y-0.5">
                     {tree.map((node) => (
                       <TreeItem
@@ -916,7 +959,7 @@ export default function ApexCodePage() {
                             : device === "tablet"
                               ? "Tablet"
                               : "Laptop"}{" "}
-                          · localhost:3000
+                          Â· localhost:3000
                         </span>
                       </div>
                     </div>
@@ -962,3 +1005,25 @@ export default function ApexCodePage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

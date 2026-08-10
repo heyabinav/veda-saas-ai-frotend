@@ -1,4 +1,3 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_ROUTES = [
@@ -13,45 +12,39 @@ function isPublicRoute(pathname: string) {
   return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
-export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
-    request,
-  });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: any[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value);
-          });
-
-          response = NextResponse.next({
-            request,
-          });
-
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
-        },
-      },
-    }
+function getSupabaseSessionToken(request: NextRequest): string | null {
+  const cookie = request.cookies.getAll().find(
+    (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
   );
+  if (!cookie) return null;
+  try {
+    const parsed = JSON.parse(decodeURIComponent(cookie.value));
+    return typeof parsed?.access_token === "string" ? parsed.access_token : null;
+  } catch {
+    return null;
+  }
+}
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+function isTokenUnexpired(accessToken: string): boolean {
+  try {
+    const payload = JSON.parse(Buffer.from(accessToken.split(".")[1] ?? "", "base64").toString());
+    return typeof payload.exp === "number" ? payload.exp * 1000 > Date.now() : true;
+  } catch {
+    return true;
+  }
+}
 
+export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const publicRoute = isPublicRoute(pathname);
 
-  const grace = request.cookies.get("post_login_grace");
-  const isLoggedIn = Boolean(user) || (grace && Number(grace.value) > Date.now());
+  // Fast local auth check — no network round-trip to Supabase on navigation.
+  // Equivalent to the previous `supabase.auth.getUser()` but without the
+  // per-request server call that made every page load slow.
+  const supabaseToken = getSupabaseSessionToken(request);
+  const isLoggedIn =
+    Boolean(request.cookies.get("auth_token")?.value) ||
+    Boolean(supabaseToken && isTokenUnexpired(supabaseToken));
 
   // Logged-in user on a public route → send home
   if (isLoggedIn && publicRoute) {
@@ -69,7 +62,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return response;
+  return NextResponse.next({ request });
 }
 
 export const config = {

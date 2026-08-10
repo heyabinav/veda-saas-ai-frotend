@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowRight, BookOpen, Github, Plug, X, Zap } from "lucide-react";
 
 const navLinks = [
@@ -13,7 +14,7 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200/60 bg-white/80 backdrop-blur-xl dark:border-white/10 dark:bg-[#0b1220]/80">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <a href="/custom-connector" className="flex items-center gap-2.5">
+        <Link href="/custom-connector" className="flex items-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-teal-500 shadow-lg shadow-indigo-600/30">
             <Plug className="h-4.5 w-4.5 text-white" strokeWidth={2.5} />
           </span>
@@ -25,7 +26,7 @@ export function Navbar() {
               Custom Connectors
             </span>
           </span>
-        </a>
+        </Link>
 
         <nav className="hidden items-center gap-7 text-sm font-medium text-slate-600 md:flex dark:text-slate-400">
           {navLinks.map((link) => (
@@ -78,14 +79,14 @@ export function Footer() {
     <footer className="border-t border-slate-200/60 bg-white dark:border-white/10 dark:bg-[#0b1220]">
       <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
         <div>
-          <a href="/custom-connector" className="flex items-center gap-2.5">
+          <Link href="/custom-connector" className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-teal-500">
               <Zap className="h-4.5 w-4.5 text-white" strokeWidth={2.5} />
             </span>
             <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">
               VedaApex
             </span>
-          </a>
+          </Link>
           <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-500 dark:text-slate-400">
             The fastest way to connect your website or app to AI agents —
             securely, with MCP or OAuth.

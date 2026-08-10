@@ -25,6 +25,9 @@ tmp-*.*
 # Next.js build output
 .next/
 
+# Local environment variables (secrets — configure in Vercel dashboard)
+.env
+
 # TypeScript build info
 tsconfig.tsbuildinfo
 
