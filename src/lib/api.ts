@@ -1,9 +1,17 @@
-import { supabase } from "@/integrations/supabase/client";
-
 const isServer = typeof window === "undefined";
 
-// Use NEXT_PUBLIC_API_BASE_URL or fallback to the Hugging Face space url
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://vedaapex-saas-ai.onrender.com";
+// Keep the browser-only Supabase client out of the server bundle. This module is
+// also imported by server route handlers during `next build`.
+async function getSupabaseClient() {
+  const { supabase } = await import("@/integrations/supabase/client");
+  return supabase;
+}
+
+// Prefer the project-provided API URL, with the legacy name retained for compatibility.
+const BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://vedaapex-saas-ai.onrender.com";
 
 type ApiRequestOptions = RequestInit & {
   timeoutMs?: number;
@@ -70,6 +78,7 @@ export async function apiRequest(endpoint: string, options: ApiRequestOptions = 
   // stored developer API key.
   let token: string | undefined;
   let apiKey: string | undefined;
+  const supabase = await getSupabaseClient();
 
   try {
     const { data } = await supabase.auth.getSession();
