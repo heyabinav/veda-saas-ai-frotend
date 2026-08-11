@@ -77,16 +77,6 @@ export async function POST(req: NextRequest) {
           ? [body.file]
           : undefined;
 
-    const payload = {
-      prompt: body.message,
-      system_prompt: systemPrompt,
-      tier,
-      provider: "auto",
-      files,
-    };
-
-    console.log("DEBUG: Sending request to /api/v1/ai/generate/text with payload:", payload);
-
     const authHeader = req.headers.get("Authorization") ?? "";
     const authToken =
       authHeader ||
@@ -94,12 +84,56 @@ export async function POST(req: NextRequest) {
         ? `Bearer ${decodeURIComponent(req.cookies.get("auth_token")!.value)}`
         : "");
 
+    // The backend reads attached files from a multipart request ("file" field),
+    // like every other media endpoint. When files are present, send them as
+    // FormData; otherwise keep the plain JSON payload.
+    let payloadBody: BodyInit;
+    if (files && files.length > 0) {
+      const formData = new FormData();
+      formData.append("prompt", body.message ?? "");
+      formData.append("system_prompt", systemPrompt);
+      formData.append("tier", String(tier));
+      formData.append("provider", "auto");
+      let appended = 0;
+      files.forEach((f) => {
+        const match = /^data:([^;]+);base64,(.*)$/s.exec(f?.dataUrl ?? "");
+        if (match) {
+          const blob = new Blob([Buffer.from(match[2], "base64")], {
+            type: f?.type || match[1],
+          });
+          formData.append(
+            appended === 0 ? "file" : `file_${appended + 1}`,
+            blob,
+            f?.name || `attachment-${appended + 1}`,
+          );
+          appended += 1;
+        }
+      });
+      console.log(
+        "DEBUG: Sending request to /api/v1/ai/generate/text (multipart) with",
+        appended,
+        "file(s):",
+        files.map((f) => f?.name),
+      );
+      payloadBody = formData;
+    } else {
+      const payload = {
+        prompt: body.message,
+        system_prompt: systemPrompt,
+        tier,
+        provider: "auto",
+      };
+      console.log("DEBUG: Sending request to /api/v1/ai/generate/text with payload:", payload);
+      payloadBody = JSON.stringify(payload);
+    }
+
     const response = await apiRequest("/api/v1/ai/generate/text", {
       method: "POST",
       headers: {
-        "Authorization": authToken,
+        ...(authToken ? { Authorization: authToken } : {}),
       },
-      body: JSON.stringify(payload),
+      body: payloadBody,
+      timeoutMs: 180000,
     });
 
     const data = await response.json();
