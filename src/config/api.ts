@@ -198,12 +198,6 @@ export const ENDPOINTS = {
   getSearchHistoryResults: (historyId: string) => `${API_URL}/api/v1/search/history/${historyId}/results`,
   generateSearchTitle: `${API_URL}/api/v1/search/title/generate`,
 
-  // Chat Memory
-  askChat: `${API_URL}/api/v1/chat/ask`,
-  newChatSession: `${API_URL}/api/v1/chat/session/new`,
-  listChatSessions: `${API_URL}/api/v1/chat/sessions`,
-  getChatSessionMessages: (sessionId: string) => `${API_URL}/api/v1/chat/sessions/${sessionId}/messages`,
-
   // Skills (Persistent + Custom)
   listSkills: `${API_URL}/api/v1/skills`,
   addSkill: `${API_URL}/api/v1/skills`,

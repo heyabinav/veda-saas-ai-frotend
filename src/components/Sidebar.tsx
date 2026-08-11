@@ -26,11 +26,9 @@ import {
   Wallet,
   KeyRound,
   Brain,
-  History,
 } from "lucide-react";
 
 import type { Chat, Folder, Message } from "@/types";
-import type { CloudSession } from "@/lib/chatMemory";
 
 export function SidebarItem({
   icon: Icon,
@@ -90,9 +88,6 @@ export default function Sidebar({
   deleteChat,
   renameChat,
   onLogoClick,
-  cloudSessions = [],
-  cloudSessionsLoading = false,
-  onOpenCloudSession,
 }: {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
@@ -106,9 +101,6 @@ export default function Sidebar({
   deleteChat?: (id: string) => void;
   renameChat?: (id: string, newName: string) => void;
   onLogoClick?: () => void;
-  cloudSessions?: CloudSession[];
-  cloudSessionsLoading?: boolean;
-  onOpenCloudSession?: (session: CloudSession) => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -380,43 +372,6 @@ export default function Sidebar({
             </div>
           )}
 
-          {sidebarOpen && cloudSessions.length > 0 && (
-            <div className="space-y-1.5 animate-fade-in">
-              <div className="flex items-center justify-between px-3 py-1 text-[11px] font-semibold text-foreground/45 uppercase tracking-wider">
-                <span className="flex items-center gap-1.5"><History className="h-3 w-3" /> Cloud Memory</span>
-                <span className="text-[10px] font-normal normal-case text-foreground/35">{cloudSessions.length}</span>
-              </div>
-
-              <div className="space-y-1 px-1 max-h-[220px] overflow-y-auto pr-1" aria-busy={cloudSessionsLoading}>
-                {cloudSessionsLoading ? (
-                  <div className="space-y-1.5">
-                    {Array.from({ length: 3 }).map((_, i) => (
-                      <div key={i} className="flex items-center gap-2.5 px-2 py-1.5">
-                        <div className="skeleton h-5 w-5 shrink-0 rounded-md" />
-                        <div className="skeleton h-3 rounded-md" style={{ width: `${80 - i * 15}%` }} />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  cloudSessions.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => onOpenCloudSession?.(s)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-black/5 transition"
-                    >
-                      <History className="h-[15px] w-[15px] shrink-0 text-foreground/50" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] text-foreground/80">{s.title || "Untitled"}</p>
-                        <p className="text-[11px] text-foreground/40">
-                          {new Date(s.last_message_at || s.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* User */}

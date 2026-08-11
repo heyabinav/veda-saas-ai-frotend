@@ -49,8 +49,7 @@ import {
   Mail,
   Instagram,
   Twitter,
-  History,
-} from "lucide-react";
+  } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import MessageContent from "@/components/MessageContent";
 import RequirementWizard from "@/components/RequirementWizard";
@@ -66,13 +65,6 @@ import {
   getFoldersFromSupabase,
 } from "@/lib/supabase/chat";
 import { THINKING_MESSAGES } from "@/lib/thinking-messages";
-import {
-  listCloudSessions,
-  getCloudSessionMessages,
-  seedChatMemory,
-  type CloudSession,
-  type CloudMessage,
-} from "@/lib/chatMemory";
 import OAuthModal from "@/components/OAuthModal";
 import ConnectorLogo from "@/components/ConnectorLogo";
 import {
@@ -201,12 +193,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const [wizardOpen, setWizardOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [promoModalOpen, setPromoModalOpen] = useState(false);
-  const [cloudSessionsOpen, setCloudSessionsOpen] = useState(false);
-  const [cloudSessions, setCloudSessions] = useState<CloudSession[]>([]);
-  const [cloudSessionsLoading, setCloudSessionsLoading] = useState(false);
-  const [cloudActiveSession, setCloudActiveSession] = useState<CloudSession | null>(null);
-  const [cloudMessages, setCloudMessages] = useState<CloudMessage[]>([]);
-  const [cloudMessagesLoading, setCloudMessagesLoading] = useState(false);
   const customLogoInputRef = useRef<HTMLInputElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -1102,9 +1088,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       }
     }
 
-    void seedChatMemory(activeChatId, text, assistantText);
-    void refreshCloudChats();
-
     return {
       role: "assistant",
       text: assistantText,
@@ -1112,101 +1095,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       durationMs: Date.now() - sentAt,
     };
   }
-
-  const openCloudSessions = async () => {
-    setCloudSessionsOpen(true);
-    setCloudSessionsLoading(true);
-    setCloudSessions([]);
-    setCloudActiveSession(null);
-    setCloudMessages([]);
-    const sessions = await listCloudSessions();
-    setCloudSessions(sessions);
-    setCloudSessionsLoading(false);
-  };
-
-  const refreshCloudChats = useCallback(async () => {
-    try {
-      const sessions = await listCloudSessions();
-      setCloudSessions(sessions);
-    } catch {
-      // cloud sessions are best-effort — never block the UI
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!authResolved) return;
-    void refreshCloudChats();
-  }, [authResolved, refreshCloudChats]);
-
-  const openCloudChat = async (session: CloudSession) => {
-    setCloudActiveSession(session);
-    setCloudMessagesLoading(true);
-    const msgs = await getCloudSessionMessages(session.id);
-    setCloudMessagesLoading(false);
-    const imported: Message[] = msgs
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
-        text: m.content,
-        timestamp: new Date(m.created_at).getTime() || Date.now(),
-        durationMs: 0,
-      }));
-    setChats((prev) => {
-      const exists = prev.some((c) => c.id === session.id);
-      if (exists) {
-        return prev.map((c) => (c.id === session.id ? { ...c, name: session.title || c.name, messages: imported } : c));
-      }
-      const chat: Chat = {
-        id: session.id,
-        name: session.title || "Cloud session",
-        messages: imported,
-        createdAt: Date.now(),
-      };
-      if (user) {
-        saveChatToSupabase(chat).catch(console.error);
-      }
-      return [chat, ...prev];
-    });
-    setActiveChatId(session.id);
-    setMessages(imported);
-    window.history.pushState(null, "", `/c/${session.id}`);
-  };
-
-  const openCloudSession = async (session: CloudSession) => {
-    setCloudActiveSession(session);
-    setCloudMessagesLoading(true);
-    setCloudMessages([]);
-    const msgs = await getCloudSessionMessages(session.id);
-    setCloudMessages(msgs);
-    setCloudMessagesLoading(false);
-  };
-
-  const importCloudSession = (session: CloudSession) => {
-    const chatId = session.id;
-    const imported: Message[] = [
-      ...cloudMessages.filter((m) => m.role !== "system").map((m) => ({
-        role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
-        text: m.content,
-        timestamp: new Date(m.created_at).getTime() || Date.now(),
-        durationMs: 0,
-      })),
-    ];
-    if (imported.length === 0) {
-      alert("This cloud session has no messages to import.");
-      return;
-    }
-    setChats((prev) => {
-      const exists = prev.some((c) => c.id === chatId);
-      if (exists) {
-        return prev.map((c) => (c.id === chatId ? { ...c, messages: imported } : c));
-      }
-      return [{ id: chatId, name: session.title || "Cloud session", messages: imported, createdAt: Date.now() }, ...prev];
-    });
-    setActiveChatId(chatId);
-    setCloudSessionsOpen(false);
-    setCloudActiveSession(null);
-    setCloudMessages([]);
-  };
 
   const persistEditedMessages = (nextMessages: Message[]) => {
     setChats((prev) => {
@@ -1394,9 +1282,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
           deleteChat={deleteChat}
           renameChat={renameChat}
           onLogoClick={handleLogoClick}
-          cloudSessions={cloudSessions}
-          cloudSessionsLoading={cloudSessionsLoading}
-          onOpenCloudSession={(s) => void openCloudChat(s)}
         />
 
         {/* Main */}
@@ -1450,15 +1335,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                 </div>
             </div>
             
-            <button
-                onClick={() => void openCloudSessions()}
-                className="shrink-0 flex items-center gap-1.5 rounded-full border border-black/10 bg-black/5 px-3 sm:px-4 py-1.5 text-sm font-medium text-foreground/70 hover:bg-black/10 transition-all"
-                aria-label="Cloud memory"
-                title="Chat memory (cloud sessions)"
-            >
-                <History className="h-4 w-4" />
-                <span className="hidden sm:inline">Memory</span>
-            </button>
             <Link href="/upgrade" className="shrink-0 px-3 sm:px-4 py-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold rounded-full shadow hover:opacity-90 transition-all">
                 Upgrade
             </Link>
@@ -2425,89 +2301,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                     <div className="flex justify-end gap-2">
                         <button onClick={() => setPromoModalOpen(false)} className="px-3 py-1 text-sm">Cancel</button>
                         <button onClick={applyPromoCode} className="rounded bg-black px-3 py-1 text-sm text-white">Apply</button>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {cloudSessionsOpen && (
-            <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-                onClick={() => { setCloudSessionsOpen(false); setCloudActiveSession(null); setCloudMessages([]); }}
-            >
-                <div
-                    className="flex w-full max-w-2xl max-h-[80vh] flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-black/10">
-                        <h2 className="text-base font-semibold text-foreground">
-                            {cloudActiveSession ? cloudActiveSession.title : "Chat memory"}
-                        </h2>
-                        <button
-                            onClick={() => { setCloudSessionsOpen(false); setCloudActiveSession(null); setCloudMessages([]); }}
-                            className="rounded-md p-1.5 text-foreground/60 hover:bg-black/5"
-                            aria-label="Close"
-                        >
-                            <X className="h-4 w-4" />
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-4">
-                        {cloudActiveSession ? (
-                            cloudMessagesLoading ? (
-                                <p className="py-8 text-center text-sm text-foreground/40">Loading messages...</p>
-                            ) : cloudMessages.length === 0 ? (
-                                <p className="py-8 text-center text-sm text-foreground/40">This session has no messages yet.</p>
-                            ) : (
-                                <div className="space-y-3">
-                                    {cloudMessages.filter((m) => m.role !== "system").map((m) => (
-                                        <div
-                                            key={m.id}
-                                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
-                                                m.role === "assistant"
-                                                    ? "bg-black/[0.04] text-foreground/80 border border-black/5"
-                                                    : "bg-foreground text-white ml-auto"
-                                            }`}
-                                        >
-                                            {m.content}
-                                        </div>
-                                    ))}
-                                    <div className="flex justify-end pt-2">
-                                        <button
-                                            onClick={() => importCloudSession(cloudActiveSession)}
-                                            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-white hover:opacity-90"
-                                        >
-                                            Load into chat
-                                        </button>
-                                    </div>
-                                </div>
-                            )
-                        ) : cloudSessionsLoading ? (
-                            <p className="py-8 text-center text-sm text-foreground/40">Loading sessions...</p>
-                        ) : cloudSessions.length === 0 ? (
-                            <div className="py-8 text-center">
-                                <History className="mx-auto mb-2 h-8 w-8 text-foreground/30" />
-                                <p className="text-sm text-foreground/40">No cloud sessions yet. Chat with any message and it will be saved here.</p>
-                            </div>
-                        ) : (
-                            <div className="divide-y divide-black/5">
-                                {cloudSessions.map((s) => (
-                                    <button
-                                        key={s.id}
-                                        onClick={() => void openCloudSession(s)}
-                                        className="flex w-full items-center justify-between gap-3 py-3 text-left hover:bg-black/[0.03] px-2 rounded-lg"
-                                    >
-                                        <div className="min-w-0">
-                                            <p className="truncate text-sm font-medium text-foreground">{s.title || "Untitled"}</p>
-                                            <p className="text-xs text-foreground/45">
-                                                {s.last_message_at || s.created_at ? new Date(s.last_message_at || s.created_at).toLocaleString() : ""}
-                                            </p>
-                                        </div>
-                                        <ChevronRight className="h-4 w-4 shrink-0 text-foreground/30" />
-                                    </button>
-                                ))}
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>
