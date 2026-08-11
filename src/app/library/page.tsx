@@ -11,6 +11,7 @@ import {
   Clock,
   Search,
 } from "lucide-react";
+import { SkeletonImage } from "@/components/ui/skeleton";
 
 type ItemType = "image" | "video" | "ppt" | "attachment";
 
@@ -161,7 +162,9 @@ export default function LibraryPage() {
                             <div key={item.id} className="group relative bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden hover:shadow-md transition-all">
                                 {item.type === "image" && item.url && (
                                     <div className="aspect-square w-full overflow-hidden bg-black/[0.02]">
-                                        <img src={item.url} alt={item.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                                        <SkeletonImage className="h-full w-full" rounded="none">
+                                            <img src={item.url} alt={item.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                                        </SkeletonImage>
                                     </div>
                                 )}
                                 {item.type === "video" && (

@@ -10,6 +10,7 @@ import {
   Download,
   AlertCircle,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function fetchAuthToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -162,9 +163,23 @@ export default function PptPreview({
     <div className="flex flex-1 flex-col min-h-0">
       <div className="flex-1 overflow-auto flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50 p-3 lg:p-6">
         {loading ? (
-          <div className="flex flex-col items-center gap-3 text-foreground/50">
-            <Loader2 className="h-8 w-8 animate-spin" />
-            <p className="text-sm">Rendering slides...</p>
+          <div className="flex w-full flex-col items-center gap-4" aria-busy="true">
+            <div className="relative aspect-[16/9] w-full max-w-3xl overflow-hidden rounded-lg bg-white shadow-2xl">
+              <Skeleton rounded="none" className="absolute inset-0" />
+              <div className="absolute inset-0 p-10 sm:p-14 space-y-6">
+                <Skeleton rounded="sm" className="h-6 w-2/5" />
+                <div className="space-y-3">
+                  <Skeleton rounded="sm" className="h-3.5 w-3/4" />
+                  <Skeleton rounded="sm" className="h-3.5 w-2/3" />
+                  <Skeleton rounded="sm" className="h-3.5 w-5/6" />
+                  <Skeleton rounded="sm" className="h-3.5 w-1/2" />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-foreground/50">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <p>Rendering slides...</p>
+            </div>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center gap-3 text-center max-w-sm">

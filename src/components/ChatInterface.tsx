@@ -41,9 +41,19 @@ import {
   File as FileIcon,
   ShieldCheck,
   ExternalLink,
+  Pencil,
+  Copy,
+  Share,
+  ThumbsUp,
+  ThumbsDown,
+  Mail,
+  Instagram,
+  Twitter,
+  History,
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import MessageContent from "@/components/MessageContent";
+import RequirementWizard from "@/components/RequirementWizard";
 import { getClientAiSettings } from "@/lib/ai-settings";
 import { useDropzone } from "react-dropzone";
 import type { Chat, Folder, Message } from "@/types";
@@ -56,6 +66,13 @@ import {
   getFoldersFromSupabase,
 } from "@/lib/supabase/chat";
 import { THINKING_MESSAGES } from "@/lib/thinking-messages";
+import {
+  listCloudSessions,
+  getCloudSessionMessages,
+  seedChatMemory,
+  type CloudSession,
+  type CloudMessage,
+} from "@/lib/chatMemory";
 import OAuthModal from "@/components/OAuthModal";
 import ConnectorLogo from "@/components/ConnectorLogo";
 import {
@@ -129,12 +146,23 @@ function formatMessageTime(ts: number) {
   return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-function formatDuration(ms: number) {
-  const total = Math.max(0, Math.round(ms / 1000));
-  if (total < 60) return `${total}s`;
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+function sanitizeChatsForStorage(chats: Chat[]): Chat[] {
+  return chats.map((chat) => ({
+    ...chat,
+    messages: chat.messages.map((m) => {
+      if (m.role !== "user" || (!m.file && !m.files)) return m;
+      const strip = (f: { name: string; type: string; dataUrl: string }) => ({
+        name: f.name,
+        type: f.type,
+        dataUrl: "",
+      });
+      return {
+        ...m,
+        file: m.file ? strip(m.file) : m.file,
+        files: m.files ? m.files.map(strip) : m.files,
+      };
+    }),
+  }));
 }
 
 export default function ChatInterface({ initialChatId }: { initialChatId?: string }) {
@@ -144,6 +172,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const [activeChatId, setActiveChatId] = useState<string | null>(initialChatId || null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
+  const [chatsLoading, setChatsLoading] = useState(true);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [input, setInput] = useState("");
   const [model, setModel] = useState<string>(COMPOSER_MODELS[0].name);
@@ -155,10 +184,29 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const [isThinking, setIsThinking] = useState(false);
   const [barDocked, setBarDocked] = useState(false);
   const [thinkingMessage, setThinkingMessage] = useState("Thinking...");
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [shareOpenIdx, setShareOpenIdx] = useState<number | null>(null);
+  const [instaCopied, setInstaCopied] = useState(false);
+  const [feedback, setFeedback] = useState<Record<string, "good" | "bad">>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("vedaapex_response_feedback") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
   const [toolsOpen, setToolsOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [promoModalOpen, setPromoModalOpen] = useState(false);
+  const [cloudSessionsOpen, setCloudSessionsOpen] = useState(false);
+  const [cloudSessions, setCloudSessions] = useState<CloudSession[]>([]);
+  const [cloudSessionsLoading, setCloudSessionsLoading] = useState(false);
+  const [cloudActiveSession, setCloudActiveSession] = useState<CloudSession | null>(null);
+  const [cloudMessages, setCloudMessages] = useState<CloudMessage[]>([]);
+  const [cloudMessagesLoading, setCloudMessagesLoading] = useState(false);
   const customLogoInputRef = useRef<HTMLInputElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -172,7 +220,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [connectorSearch, setConnectorSearch] = useState("");
-  const lastAssistantMessage = messages.slice().reverse().find((m) => m.role === "assistant");
   const [showConnectorsHub, setShowConnectorsHub] = useState(false);
   const [connectorConnections, setConnectorConnections] = useState<Record<string, string>>({});
   const [connectorEnabled, setConnectorEnabled] = useState<Record<string, boolean>>({});
@@ -699,6 +746,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       } else {
         loadFromLocalStorage();
       }
+      setChatsLoading(false);
     }
 
     function loadFromLocalStorage() {
@@ -726,6 +774,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
         setFolders([defaultFolder]);
         localStorage.setItem("apex_folders", JSON.stringify([defaultFolder]));
       }
+      setChatsLoading(false);
     }
 
     loadData();
@@ -737,14 +786,20 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
 
   // Backup saves to localStorage on local state changes
   useEffect(() => {
-    if (chats.length > 0) {
-      localStorage.setItem("apex_chats_v2", JSON.stringify(chats));
+    try {
+      // Strip heavy base64 file payloads — they blow past the localStorage
+      // quota (QuotaExceededError) when images/videos are attached.
+      localStorage.setItem("apex_chats_v2", JSON.stringify(sanitizeChatsForStorage(chats)));
+    } catch {
+      // localStorage full or unavailable — skip the backup, never crash the app
     }
   }, [chats]);
 
   useEffect(() => {
-    if (folders.length > 0) {
+    try {
       localStorage.setItem("apex_folders", JSON.stringify(folders));
+    } catch {
+      // ignore storage errors
     }
   }, [folders]);
 
@@ -882,9 +937,10 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       files: filesData.length > 0 ? filesData : undefined,
     };
     const sentAt = userMsg.timestamp!;
-    
+    const currentMessages = [...messages, userMsg];
+
     // Immediate UI update
-    setMessages(prev => [...prev, userMsg]);
+    setMessages(currentMessages);
     setInput("");
     setTimeout(() => {
       autoResize();
@@ -894,79 +950,10 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     setIsThinking(true); // Start thinking animation
     setToolsOpen(false); // Close tools menu on send
 
-    let assistantText = "AI Brain is unavailable right now.";
-
-    const getAccuracy = (plan: string | undefined) => {
-      if (!plan || plan === "free") return "50%";
-      if (plan === "200") return "75%";
-      if (plan === "500") return "90%";
-      if (plan === "1000") return "100%";
-      return "50%";
-    };
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    let token = sessionData.session?.access_token;
-    if (!token) {
-      try {
-        const match = document.cookie.split("; ").find((c) => c.startsWith("auth_token="));
-        if (match) token = decodeURIComponent(match.slice("auth_token=".length));
-      } catch {
-        // ignore cookie read errors
-      }
-    }
-    
-    const headers: Record<string, string> = { 
-        "Content-Type": "application/json" 
-    };
-    if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ 
-          message: text, 
-          chat_id: activeChatId, 
-          model,
-          intent: "general",
-          responseMode: "structured",
-          accuracy: getAccuracy(user?.user_metadata?.plan),
-          system_prompt: getClientAiSettings(user?.user_metadata?.plan).systemPrompt,
-          file: filesData[0],
-          files: filesData.length > 0 ? filesData : undefined,
-        }),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error ?? "AI Brain request failed");
-      }
-
-      assistantText =
-        typeof data?.assistant_response === "string" && data.assistant_response.trim().length > 0
-          ? data.assistant_response
-          : typeof data?.response === "string" && data.response.trim().length > 0
-            ? data.response
-            : data?.quotaExceeded
-              ? "AI usage is exhausted right now. Please try again later."
-              : "AI Brain returned an empty response.";
-    } catch (error) {
-      console.error("Failed to send chat message", error);
-      if (error instanceof Error && error.message) {
-        assistantText = error.message;
-      }
-    }
+    const assistantMsg = await fetchAssistantReply(text, sentAt, filesData);
 
     setIsThinking(false); // Stop thinking animation
-    const assistantMsg: Message = {
-      role: "assistant",
-      text: assistantText,
-      timestamp: Date.now(),
-      durationMs: Date.now() - sentAt,
-    };
-    const nextMessages = [...messages, userMsg, assistantMsg];
+    const nextMessages = [...currentMessages, assistantMsg];
     setMessages(nextMessages);
     setShowDisclaimer(true);
 
@@ -978,9 +965,9 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
         name: "New Chat",
         messages: nextMessages,
         createdAt: Date.now(),
-        folderId: defaultFolder
+        folderId: defaultFolder,
       };
-      setChats([newChatObj, ...chats]);
+      setChats((prev) => [newChatObj, ...prev]);
       setActiveChatId(newId);
       window.history.pushState(null, "", `/c/${newId}`);
       if (user) {
@@ -990,17 +977,18 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       // Generate title via AI after first message
       generateChatTitle(newId, text).catch(console.error);
     } else {
-      const currentChat = chats.find(c => c.id === activeChatId);
-      if (currentChat) {
+      setChats((prev) => {
+        const currentChat = prev.find((c) => c.id === activeChatId);
+        if (!currentChat) return prev;
         const updatedChat: Chat = {
           ...currentChat,
           messages: nextMessages,
         };
-        setChats(chats.map(c => c.id === activeChatId ? updatedChat : c));
         if (user) {
-          await saveChatToSupabase(updatedChat).catch(console.error);
+          saveChatToSupabase(updatedChat).catch(console.error);
         }
-      }
+        return prev.map((c) => (c.id === activeChatId ? updatedChat : c));
+      });
     }
   }
 
@@ -1044,6 +1032,327 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
   }
 
+  async function fetchAssistantReply(
+    text: string,
+    sentAt: number,
+    files?: { name: string; type: string; dataUrl: string }[]
+  ): Promise<Message> {
+    let assistantText = "AI Brain is unavailable right now.";
+
+    const getAccuracy = (plan: string | undefined) => {
+      if (!plan || plan === "free") return "50%";
+      if (plan === "200") return "75%";
+      if (plan === "500") return "90%";
+      if (plan === "1000") return "100%";
+      return "50%";
+    };
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    let token = sessionData.session?.access_token;
+    if (!token) {
+      try {
+        const match = document.cookie.split("; ").find((c) => c.startsWith("auth_token="));
+        if (match) token = decodeURIComponent(match.slice("auth_token=".length));
+      } catch {
+        // ignore cookie read errors
+      }
+    }
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          message: text,
+          chat_id: activeChatId,
+          model,
+          intent: "general",
+          responseMode: "structured",
+          accuracy: getAccuracy(user?.user_metadata?.plan),
+          system_prompt: getClientAiSettings(user?.user_metadata?.plan).systemPrompt,
+          file: files?.[0],
+          files: files && files.length > 0 ? files : undefined,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? "AI Brain request failed");
+      }
+
+      assistantText =
+        typeof data?.assistant_response === "string" && data.assistant_response.trim().length > 0
+          ? data.assistant_response
+          : typeof data?.response === "string" && data.response.trim().length > 0
+            ? data.response
+            : data?.quotaExceeded
+              ? "AI usage is exhausted right now. Please try again later."
+              : "AI Brain returned an empty response.";
+    } catch (error) {
+      console.error("Failed to send chat message", error);
+      if (error instanceof Error && error.message) {
+        assistantText = error.message;
+      }
+    }
+
+    void seedChatMemory(activeChatId, text, assistantText);
+    void refreshCloudChats();
+
+    return {
+      role: "assistant",
+      text: assistantText,
+      timestamp: Date.now(),
+      durationMs: Date.now() - sentAt,
+    };
+  }
+
+  const openCloudSessions = async () => {
+    setCloudSessionsOpen(true);
+    setCloudSessionsLoading(true);
+    setCloudSessions([]);
+    setCloudActiveSession(null);
+    setCloudMessages([]);
+    const sessions = await listCloudSessions();
+    setCloudSessions(sessions);
+    setCloudSessionsLoading(false);
+  };
+
+  const refreshCloudChats = useCallback(async () => {
+    try {
+      const sessions = await listCloudSessions();
+      setCloudSessions(sessions);
+    } catch {
+      // cloud sessions are best-effort — never block the UI
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!authResolved) return;
+    void refreshCloudChats();
+  }, [authResolved, refreshCloudChats]);
+
+  const openCloudChat = async (session: CloudSession) => {
+    setCloudActiveSession(session);
+    setCloudMessagesLoading(true);
+    const msgs = await getCloudSessionMessages(session.id);
+    setCloudMessagesLoading(false);
+    const imported: Message[] = msgs
+      .filter((m) => m.role !== "system")
+      .map((m) => ({
+        role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+        text: m.content,
+        timestamp: new Date(m.created_at).getTime() || Date.now(),
+        durationMs: 0,
+      }));
+    setChats((prev) => {
+      const exists = prev.some((c) => c.id === session.id);
+      if (exists) {
+        return prev.map((c) => (c.id === session.id ? { ...c, name: session.title || c.name, messages: imported } : c));
+      }
+      const chat: Chat = {
+        id: session.id,
+        name: session.title || "Cloud session",
+        messages: imported,
+        createdAt: Date.now(),
+      };
+      if (user) {
+        saveChatToSupabase(chat).catch(console.error);
+      }
+      return [chat, ...prev];
+    });
+    setActiveChatId(session.id);
+    setMessages(imported);
+    window.history.pushState(null, "", `/c/${session.id}`);
+  };
+
+  const openCloudSession = async (session: CloudSession) => {
+    setCloudActiveSession(session);
+    setCloudMessagesLoading(true);
+    setCloudMessages([]);
+    const msgs = await getCloudSessionMessages(session.id);
+    setCloudMessages(msgs);
+    setCloudMessagesLoading(false);
+  };
+
+  const importCloudSession = (session: CloudSession) => {
+    const chatId = session.id;
+    const imported: Message[] = [
+      ...cloudMessages.filter((m) => m.role !== "system").map((m) => ({
+        role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+        text: m.content,
+        timestamp: new Date(m.created_at).getTime() || Date.now(),
+        durationMs: 0,
+      })),
+    ];
+    if (imported.length === 0) {
+      alert("This cloud session has no messages to import.");
+      return;
+    }
+    setChats((prev) => {
+      const exists = prev.some((c) => c.id === chatId);
+      if (exists) {
+        return prev.map((c) => (c.id === chatId ? { ...c, messages: imported } : c));
+      }
+      return [{ id: chatId, name: session.title || "Cloud session", messages: imported, createdAt: Date.now() }, ...prev];
+    });
+    setActiveChatId(chatId);
+    setCloudSessionsOpen(false);
+    setCloudActiveSession(null);
+    setCloudMessages([]);
+  };
+
+  const persistEditedMessages = (nextMessages: Message[]) => {
+    setChats((prev) => {
+      const currentChat = prev.find((c) => c.id === activeChatId);
+      if (!currentChat) return prev;
+      const updatedChat: Chat = {
+        ...currentChat,
+        messages: nextMessages,
+      };
+      if (user) {
+        saveChatToSupabase(updatedChat).catch(console.error);
+      }
+      return prev.map((c) => (c.id === activeChatId ? updatedChat : c));
+    });
+  };
+
+  const handleEditStart = (i: number) => {
+    const m = messages[i];
+    if (!m) return;
+    setEditingIndex(i);
+    setEditingText(m.text);
+  };
+
+  const handleEditCancel = () => {
+    setEditingIndex(null);
+    setEditingText("");
+  };
+
+  const handleCopy = async (i: number) => {
+    const text = messages[i]?.text;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIdx(i);
+      setTimeout(() => setCopiedIdx((cur) => (cur === i ? null : cur)), 2000);
+    } catch {
+      // clipboard unavailable
+    }
+  };
+
+  const shareToGmail = (text: string) => {
+    window.open(
+      `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(
+        "Shared from VedaApex",
+      )}&body=${encodeURIComponent(text)}`,
+      "_blank",
+    );
+    setShareOpenIdx(null);
+  };
+
+  const shareToInstagram = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setInstaCopied(true);
+      setTimeout(() => setInstaCopied(false), 2000);
+    } catch {
+      // clipboard unavailable
+    }
+    setShareOpenIdx(null);
+  };
+
+  const shareToX = (text: string) => {
+    window.open(
+      `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(
+        typeof window !== "undefined" ? window.location.href : "",
+      )}`,
+      "_blank",
+    );
+    setShareOpenIdx(null);
+  };
+
+  const shareToReddit = (text: string) => {
+    window.open(
+      `https://www.reddit.com/submit?url=${encodeURIComponent(
+        typeof window !== "undefined" ? window.location.href : "",
+      )}&title=${encodeURIComponent(text.slice(0, 300))}`,
+      "_blank",
+    );
+    setShareOpenIdx(null);
+  };
+
+  const handleFeedback = (i: number, rating: "good" | "bad") => {
+    const m = messages[i];
+    if (!m || m.role !== "assistant") return;
+    const key = `${activeChatId}:${i}`;
+    setFeedback((prev) => {
+      const next = { ...prev };
+      if (next[key] === rating) {
+        delete next[key];
+      } else {
+        next[key] = rating;
+      }
+      try {
+        localStorage.setItem("vedaapex_response_feedback", JSON.stringify(next));
+      } catch {
+        // storage full or unavailable
+      }
+      return next;
+    });
+  };
+
+  const handleEditSave = async () => {
+    if (editingIndex === null) return;
+    const old = messages[editingIndex];
+    if (!old || old.role !== "user") {
+      handleEditCancel();
+      return;
+    }
+    const newText = editingText.trim();
+    if (!newText || newText === old.text) {
+      handleEditCancel();
+      return;
+    }
+
+    const updated = messages.map((m, idx) =>
+      idx === editingIndex ? { ...m, text: newText } : m
+    );
+    const after = editingIndex + 1;
+    const finalMessages = updated.slice(0, after);
+    if (updated.length > after && updated[after].role === "assistant") {
+      finalMessages.push(...updated.slice(after + 1));
+    } else {
+      finalMessages.push(...updated.slice(after));
+    }
+
+    setEditingIndex(null);
+    setEditingText("");
+    setMessages(finalMessages);
+    persistEditedMessages(finalMessages);
+    scrollToBottom();
+
+    // Re-run the AI with the corrected question (user edits only)
+    if (old.role === "user") {
+      const files = old.files ?? (old.file ? [old.file] : undefined);
+      setIsThinking(true);
+      const sentAt = old.timestamp ?? Date.now();
+      const assistantMsg = await fetchAssistantReply(newText, sentAt, files);
+      setIsThinking(false);
+      const withReply = [...finalMessages, assistantMsg];
+      setMessages(withReply);
+      persistEditedMessages(withReply);
+      setShowDisclaimer(true);
+      setTimeout(scrollToBottom, 0);
+    }
+  };
+
   const greeting = useMemo(() => {
     if (!mounted) return "Good day";
     const hour = new Date().getHours();
@@ -1081,9 +1390,13 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
           activeChatId={activeChatId}
           setActiveChat={openChat}
           chats={chats}
+          chatsLoading={chatsLoading}
           deleteChat={deleteChat}
           renameChat={renameChat}
           onLogoClick={handleLogoClick}
+          cloudSessions={cloudSessions}
+          cloudSessionsLoading={cloudSessionsLoading}
+          onOpenCloudSession={(s) => void openCloudChat(s)}
         />
 
         {/* Main */}
@@ -1137,6 +1450,15 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                 </div>
             </div>
             
+            <button
+                onClick={() => void openCloudSessions()}
+                className="shrink-0 flex items-center gap-1.5 rounded-full border border-black/10 bg-black/5 px-3 sm:px-4 py-1.5 text-sm font-medium text-foreground/70 hover:bg-black/10 transition-all"
+                aria-label="Cloud memory"
+                title="Chat memory (cloud sessions)"
+            >
+                <History className="h-4 w-4" />
+                <span className="hidden sm:inline">Memory</span>
+            </button>
             <Link href="/upgrade" className="shrink-0 px-3 sm:px-4 py-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold rounded-full shadow hover:opacity-90 transition-all">
                 Upgrade
             </Link>
@@ -1358,12 +1680,12 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                   </h1>
                 </div>
               ) : (
-                <div ref={messagesContainerRef} onScroll={handleScroll} className="scrollable-container flex-1 w-full overflow-y-auto py-6 pb-24 min-h-0">
-                  <div className="max-w-[720px] mx-auto flex flex-col justify-end min-h-full space-y-6">
+                <div ref={messagesContainerRef} onScroll={handleScroll} className="scrollable-container flex-1 w-full overflow-y-auto py-6 pb-28 min-h-0">
+                  <div className="max-w-[720px] mx-auto flex flex-col justify-start min-h-0 space-y-6">
                   {messages.map((m, i) => (
                     <div
                       key={i}
-                      className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}
+                      className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"} ${m.role === "assistant" ? "relative z-20 animate-in fade-in slide-in-from-bottom-2 duration-300" : ""}`}
                     >
                       {m.role === "user" &&
                         (m.files?.length ? m.files : m.file ? [m.file] : [])
@@ -1403,12 +1725,47 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                           )}
                       <div
                         className={`max-w-[80%] text-[15px] ${
-                          m.role === "user"
+                          m.role === "user" || editingIndex === i
                             ? "bg-black/[0.06] text-foreground rounded-2xl px-4 py-2.5"
                             : "text-foreground/85"
                         }`}
                       >
-                        {m.role === "assistant" ? (
+                        {editingIndex === i ? (
+                          <div>
+                            <textarea
+                              value={editingText}
+                              onChange={(e) => setEditingText(e.target.value)}
+                              autoFocus
+                              rows={Math.min(6, Math.max(1, editingText.split("\n").length))}
+                              className="w-full min-w-[220px] resize-none bg-transparent text-[15px] outline-none"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleEditSave();
+                                }
+                                if (e.key === "Escape") handleEditCancel();
+                              }}
+                            />
+                            <div className="mt-2 flex items-center gap-2">
+                              <button
+                                onClick={handleEditSave}
+                                aria-label="Save edited message"
+                                title="Save"
+                                className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 transition-colors hover:bg-emerald-500/25"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={handleEditCancel}
+                                aria-label="Cancel editing"
+                                title="Cancel"
+                                className="flex h-7 w-7 items-center justify-center rounded-full bg-black/5 text-foreground/50 transition-colors hover:bg-black/10"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : m.role === "assistant" ? (
                           <MessageContent
                             text={m.text}
                             onSendPrompt={(prompt) => {
@@ -1425,20 +1782,124 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                           m.text
                         )}
                       </div>
-                      {m.timestamp && (
-                        <div
-                          className={`mt-1 text-[10px] text-foreground/35 ${
-                            m.role === "user" ? "text-right" : ""
-                          }`}
+                      <div
+                        className={`relative mt-1 flex items-center gap-0.5 ${
+                          m.role === "user" ? "justify-end" : ""
+                        }`}
+                      >
+                        <button
+                          onClick={() => handleCopy(i)}
+                          aria-label="Copy message"
+                          title="Copy"
+                          className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/30 transition-colors hover:bg-black/5 hover:text-foreground/70"
                         >
-                          {formatMessageTime(m.timestamp)}
-                          {m.role === "assistant" && typeof m.durationMs === "number" && (
-                            <> · answered in {formatDuration(m.durationMs)}</>
+                          {copiedIdx === i ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-600" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
                           )}
+                        </button>
+                        <button
+                          onClick={() => handleEditStart(i)}
+                          aria-label="Edit message"
+                          title="Edit"
+                          className="flex h-7 w-7 items-center justify-center rounded-md text-foreground/30 transition-colors hover:bg-black/5 hover:text-foreground/70"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        {m.role === "assistant" && (
+                          <>
+                            <button
+                              onClick={() => setShareOpenIdx(shareOpenIdx === i ? null : i)}
+                              aria-label="Share response"
+                              title="Share"
+                              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                                shareOpenIdx === i
+                                  ? "bg-black/5 text-foreground/70"
+                                  : "text-foreground/30 hover:bg-black/5 hover:text-foreground/70"
+                              }`}
+                            >
+                              <Share className="h-3.5 w-3.5" />
+                            </button>
+                            {shareOpenIdx === i && (
+                              <div className="absolute bottom-full left-0 z-50 mb-2 flex items-center gap-1 rounded-xl border border-black/[0.06] bg-white p-1.5 shadow-lg">
+                                <button
+                                  onClick={() => shareToGmail(m.text)}
+                                  aria-label="Share on Gmail"
+                                  title="Gmail"
+                                  className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-black/5"
+                                >
+                                  <Mail className="h-4 w-4 text-red-500" />
+                                </button>
+                                <button
+                                  onClick={() => shareToInstagram(m.text)}
+                                  aria-label="Share on Instagram"
+                                  title="Instagram"
+                                  className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-black/5"
+                                >
+                                  {instaCopied ? (
+                                    <Check className="h-4 w-4 text-emerald-600" />
+                                  ) : (
+                                    <Instagram className="h-4 w-4 text-pink-500" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => shareToX(m.text)}
+                                  aria-label="Share on X"
+                                  title="X (Twitter)"
+                                  className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-black/5"
+                                >
+                                  <Twitter className="h-4 w-4 text-sky-500" />
+                                </button>
+                                <button
+                                  onClick={() => shareToReddit(m.text)}
+                                  aria-label="Share on Reddit"
+                                  title="Reddit"
+                                  className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-black/5"
+                                >
+                                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[9px] font-bold text-white">
+                                    r/
+                                  </span>
+                                </button>
+                              </div>
+                            )}
+                            <button
+                              onClick={() => handleFeedback(i, "good")}
+                              aria-label="Good response"
+                              title="Good response"
+                              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                                feedback[`${activeChatId}:${i}`] === "good"
+                                  ? "bg-emerald-500/10 text-emerald-600"
+                                  : "text-foreground/30 hover:bg-black/5 hover:text-foreground/70"
+                              }`}
+                            >
+                              <ThumbsUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleFeedback(i, "bad")}
+                              aria-label="Bad response"
+                              title="Bad response"
+                              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                                feedback[`${activeChatId}:${i}`] === "bad"
+                                  ? "bg-red-500/10 text-red-500"
+                                  : "text-foreground/30 hover:bg-black/5 hover:text-foreground/70"
+                              }`}
+                            >
+                              <ThumbsDown className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {m.role === "user" && m.timestamp && (
+                        <div className="mt-1 text-[10px] text-foreground/35 text-right">
+                          {formatMessageTime(m.timestamp)}
                         </div>
                       )}
                     </div>
                   ))}
+                  {shareOpenIdx !== null && (
+                    <div className="fixed inset-0 z-40" onClick={() => setShareOpenIdx(null)} />
+                  )}
                   {isThinking && (
                     <div className="flex justify-start">
                       <div className="flex items-center gap-3 rounded-2xl px-1 py-1">
@@ -1461,6 +1922,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                       </p>
                     </div>
                   )}
+                  <div className="h-24" />
                 </div>
                 </div>
               )}
@@ -1482,19 +1944,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                       </button>
                     </div>
                   )}
-                  {lastAssistantMessage && (
-                    <div className="rounded-3xl border border-black/[0.08] bg-white/[0.06] p-2.5 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
-                      <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-foreground/60">
-                          AI reply
-                        </span>
-                        <span className="text-[10px] text-foreground/40">Latest</span>
-                      </div>
-                      <p className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
-                        {lastAssistantMessage.text}
-                      </p>
-                    </div>
-                  )}
                   <div
                     {...getDropRootProps()}
                     className={`rounded-3xl border transition-all relative ${
@@ -1502,7 +1951,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                     } ${
                       isDropActive
                         ? "border-blue-400 bg-blue-50/50"
-                        : "border-black/[0.06] bg-white/60 backdrop-blur-xl"
+                        : "border-black/[0.06] bg-white shadow-sm"
                     }`}
                   >
                   <input {...getDropInputProps()} />
@@ -1615,7 +2064,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                             setPlusMenuOpen((o) => !o);
                             setToolsOpen(false);
                           }}
-                          className="rounded-full p-2 text-foreground/60 hover:bg-black/5"
+                          className="rounded-full bg-black/5 p-2 text-foreground/60 transition-colors hover:bg-black/10"
                           aria-label="Add content"
                         >
                           <Plus className="h-[18px] w-[18px]" />
@@ -1625,7 +2074,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                             className="absolute bottom-12 left-0 z-20"
                           >
                             {/* Main Plus Menu */}
-                            <div className="w-56 rounded-xl border border-black/10 bg-white p-1 shadow-xl animate-in fade-in zoom-in-95 duration-200">
+                            <div className="w-56 rounded-xl border border-black/10 bg-white p-1 shadow-xl animate-in fade-in zoom-in-95 duration-200 dark:bg-[var(--card)]">
                               {[
                                 { name: "Attach File", icon: <Paperclip className="h-4 w-4" />, action: () => fileRef.current?.click() },
                                 { name: "Image Generation", icon: <ImageIcon className="h-4 w-4" />, action: () => router.push("/image-generator") },
@@ -1804,14 +2253,14 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                       <button
                         ref={toolsBtnRef}
                         onClick={() => setToolsOpen((o) => !o)}
-                        className="flex items-center gap-1.5 rounded-full px-2 sm:px-3 py-1.5 text-sm text-foreground/70 hover:bg-black/5"
+                        className="flex items-center gap-1.5 rounded-full bg-black/5 px-2 sm:px-3 py-1.5 text-sm text-foreground/70 transition-colors hover:bg-black/10"
                       >
                         <SlidersHorizontal className="h-4 w-4 shrink-0" />
                         <span className="hidden sm:inline">Tools</span>
                       </button>
                       {toolsOpen && (
-                        <div ref={toolsMenuRef} className="absolute bottom-12 left-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 shadow-lg">
-                          {["Image", "Video", "PPT", "APEXCODE", "Explore Apex"].map((t) => (
+                        <div ref={toolsMenuRef} className="absolute bottom-12 left-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 shadow-lg dark:bg-[var(--card)]">
+                          {["Image", "Video", "PPT", "Website", "APEXCODE", "Explore Apex"].map((t) => (
                             <button
                               key={t}
                               onClick={() => {
@@ -1823,6 +2272,8 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                                   router.push("/video-generator");
                                 } else if (t === "PPT") {
                                   router.push("/ppt-generator");
+                                } else if (t === "Website") {
+                                  setWizardOpen(true);
                                 } else if (t === "APEXCODE") {
                                   router.push("/apexcode");
                                 } else {
@@ -1944,6 +2395,23 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
             </div>
           )}
         </main>
+        <RequirementWizard
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          onComplete={(brief, answers) => {
+            setWizardOpen(false);
+            if (brief) {
+              setInput(brief);
+              setTimeout(() => {
+                scrollToBottom();
+                const textarea = document.querySelector<HTMLTextAreaElement>(
+                  'textarea[placeholder*="Ask"]',
+                );
+                textarea?.focus();
+              }, 0);
+            }
+          }}
+        />
         {promoModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
                 <div className="w-80 rounded-xl bg-white p-6 shadow-xl">
@@ -1957,6 +2425,89 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                     <div className="flex justify-end gap-2">
                         <button onClick={() => setPromoModalOpen(false)} className="px-3 py-1 text-sm">Cancel</button>
                         <button onClick={applyPromoCode} className="rounded bg-black px-3 py-1 text-sm text-white">Apply</button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {cloudSessionsOpen && (
+            <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+                onClick={() => { setCloudSessionsOpen(false); setCloudActiveSession(null); setCloudMessages([]); }}
+            >
+                <div
+                    className="flex w-full max-w-2xl max-h-[80vh] flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-black/10">
+                        <h2 className="text-base font-semibold text-foreground">
+                            {cloudActiveSession ? cloudActiveSession.title : "Chat memory"}
+                        </h2>
+                        <button
+                            onClick={() => { setCloudSessionsOpen(false); setCloudActiveSession(null); setCloudMessages([]); }}
+                            className="rounded-md p-1.5 text-foreground/60 hover:bg-black/5"
+                            aria-label="Close"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4">
+                        {cloudActiveSession ? (
+                            cloudMessagesLoading ? (
+                                <p className="py-8 text-center text-sm text-foreground/40">Loading messages...</p>
+                            ) : cloudMessages.length === 0 ? (
+                                <p className="py-8 text-center text-sm text-foreground/40">This session has no messages yet.</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {cloudMessages.filter((m) => m.role !== "system").map((m) => (
+                                        <div
+                                            key={m.id}
+                                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
+                                                m.role === "assistant"
+                                                    ? "bg-black/[0.04] text-foreground/80 border border-black/5"
+                                                    : "bg-foreground text-white ml-auto"
+                                            }`}
+                                        >
+                                            {m.content}
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-end pt-2">
+                                        <button
+                                            onClick={() => importCloudSession(cloudActiveSession)}
+                                            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-white hover:opacity-90"
+                                        >
+                                            Load into chat
+                                        </button>
+                                    </div>
+                                </div>
+                            )
+                        ) : cloudSessionsLoading ? (
+                            <p className="py-8 text-center text-sm text-foreground/40">Loading sessions...</p>
+                        ) : cloudSessions.length === 0 ? (
+                            <div className="py-8 text-center">
+                                <History className="mx-auto mb-2 h-8 w-8 text-foreground/30" />
+                                <p className="text-sm text-foreground/40">No cloud sessions yet. Chat with any message and it will be saved here.</p>
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-black/5">
+                                {cloudSessions.map((s) => (
+                                    <button
+                                        key={s.id}
+                                        onClick={() => void openCloudSession(s)}
+                                        className="flex w-full items-center justify-between gap-3 py-3 text-left hover:bg-black/[0.03] px-2 rounded-lg"
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium text-foreground">{s.title || "Untitled"}</p>
+                                            <p className="text-xs text-foreground/45">
+                                                {s.last_message_at || s.created_at ? new Date(s.last_message_at || s.created_at).toLocaleString() : ""}
+                                            </p>
+                                        </div>
+                                        <ChevronRight className="h-4 w-4 shrink-0 text-foreground/30" />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

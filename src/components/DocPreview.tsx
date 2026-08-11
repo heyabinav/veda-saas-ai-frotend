@@ -4,6 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import { renderAsync } from "docx-preview";
 import { Loader2, AlertCircle, Download, FileText } from "lucide-react";
 import { fetchFileBytes, getFileName } from "./PptPreview";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DocPreview({
   source,
@@ -67,9 +68,24 @@ export default function DocPreview({
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 text-foreground/50 h-full">
-        <Loader2 className="h-8 w-8 animate-spin" />
-        <p className="text-sm">Rendering document...</p>
+      <div className="flex flex-col items-center justify-center gap-4 h-full bg-[#EDE7DA] p-4 sm:p-8" aria-busy="true">
+        <div className="w-full max-w-3xl bg-white shadow-lg rounded-sm min-h-full">
+          <div className="p-6 sm:p-12 space-y-5">
+            <Skeleton rounded="sm" className="h-7 w-1/2" />
+            <Skeleton rounded="sm" className="h-4 w-full" />
+            <Skeleton rounded="sm" className="h-4 w-11/12" />
+            <Skeleton rounded="sm" className="h-4 w-4/5" />
+            <Skeleton rounded="sm" className="h-4 w-full" />
+            <Skeleton rounded="sm" className="h-4 w-2/3" />
+            <Skeleton rounded="sm" className="h-4 w-9/12" />
+            <Skeleton rounded="sm" className="h-4 w-3/4" />
+            <Skeleton rounded="sm" className="h-4 w-1/2" />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-foreground/50">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <p>Rendering document...</p>
+        </div>
       </div>
     );
   }

@@ -44,7 +44,7 @@ const canAccessModel = (plan: string | null, price: string) => {
 };
 
 const FEELING_LUCKY_PROMPTS = [
-  "Build a full-stack Next.js web application with real-time Supabase auth and dark theme",
+  "Build a full-stack web application with real-time user authentication and dark theme",
   "Create an Android app UI for AI photo editing with camera integration",
   "Build a SaaS billing dashboard with Stripe, responsive analytics charts, and dark mode",
   "Create a Gmail workflow automation bot that categorizes emails and sends AI summaries",

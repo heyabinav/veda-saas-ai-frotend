@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
         tier: 1,
         provider: "auto",
       }),
+      timeoutMs: 60000,
     });
 
     const data = await response.json();

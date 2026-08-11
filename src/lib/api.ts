@@ -134,6 +134,19 @@ export async function apiRequest(endpoint: string, options: ApiRequestOptions = 
   // Build headers once, but allow a fresh set on the 401 retry (stale token cleared)
   const buildHeaders = (currentToken: string | undefined, currentApiKey: string | undefined) => {
     const h = new Headers(options.headers);
+
+    // Remove any explicitly-set but empty auth headers so they don't
+    // override the token-based headers or cause the backend to treat the
+    // request as unauthenticated (some proxies reject empty Authorization).
+    const authVal = h.get("Authorization");
+    if (typeof authVal === "string" && authVal.trim() === "") {
+      h.delete("Authorization");
+    }
+    const apiKeyVal = h.get("x-api-key");
+    if (typeof apiKeyVal === "string" && apiKeyVal.trim() === "") {
+      h.delete("x-api-key");
+    }
+
     if (currentToken && !h.has("Authorization")) {
       h.set("Authorization", `Bearer ${currentToken}`);
     }

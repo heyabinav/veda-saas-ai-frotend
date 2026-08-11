@@ -204,6 +204,16 @@ export const ENDPOINTS = {
   listChatSessions: `${API_URL}/api/v1/chat/sessions`,
   getChatSessionMessages: (sessionId: string) => `${API_URL}/api/v1/chat/sessions/${sessionId}/messages`,
 
+  // Skills (Persistent + Custom)
+  listSkills: `${API_URL}/api/v1/skills`,
+  addSkill: `${API_URL}/api/v1/skills`,
+  deleteAllSkills: `${API_URL}/api/v1/skills`,
+  getSkill: (skillId: string) => `${API_URL}/api/v1/skills/${skillId}`,
+  updateSkill: (skillId: string) => `${API_URL}/api/v1/skills/${skillId}`,
+  deleteSkill: (skillId: string) => `${API_URL}/api/v1/skills/${skillId}`,
+  matchSkills: `${API_URL}/api/v1/skills/match`,
+  executeSkills: `${API_URL}/api/v1/skills/execute`,
+
   // Google Workspace
   googleConnect: `${API_URL}/api/v1/google/connect`,
   googleCallback: `${API_URL}/api/v1/google/callback`,

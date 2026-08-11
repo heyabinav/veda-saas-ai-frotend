@@ -21,9 +21,13 @@ async function handleProxy(req: NextRequest, { params }: { params: Promise<{ pat
   const headers = new Headers();
   req.headers.forEach((value, key) => {
     // Copy all headers except host
-    if (key.toLowerCase() !== "host") {
-      headers.set(key, value);
+    if (key.toLowerCase() === "host") return;
+    // Skip empty auth headers which can cause the backend to reject the
+    // request or treat it as an authenticated request with an empty token.
+    if ((key.toLowerCase() === "authorization" || key.toLowerCase() === "x-api-key") && typeof value === "string" && value.trim() === "") {
+      return;
     }
+    headers.set(key, value);
   });
 
   let body: any = undefined;

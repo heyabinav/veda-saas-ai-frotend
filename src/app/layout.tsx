@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import Providers from "./providers";
 import GuestBanner from "@/components/GuestBanner";
 import "../styles.css";
@@ -37,6 +38,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://bjulbxkvpsbgwwwcenrt.supabase.co"
           crossOrigin="anonymous"
         />
+        {/* Google Analytics gtag.js */}
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-GELP8C8S6E"
+          strategy="afterInteractive"
+        />
+        <Script id="gtag-init" strategy="afterInteractive">
+          {`window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);} 
+  gtag('js', new Date());
+  gtag('config', 'G-GELP8C8S6E');`}
+        </Script>
       </head>
       <body className="antialiased">
         <GuestBanner />

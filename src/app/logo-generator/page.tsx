@@ -3,6 +3,7 @@
 import { useState } from "react";
 import CanvasGenerator from "@/components/CanvasGenerator";
 import { apiRequest } from "@/lib/api";
+import { SkeletonImage } from "@/components/ui/skeleton";
 
 export default function LogoGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -72,7 +73,9 @@ export default function LogoGenerator() {
       history={[]}
     >
       {url ? (
-        <img src={url} alt="Logo" className="h-64 w-64 rounded-xl shadow-lg" />
+        <SkeletonImage className="h-64 w-64">
+          <img src={url} alt="Logo" className="h-64 w-64 rounded-xl shadow-lg" />
+        </SkeletonImage>
       ) : (
         <span className="text-foreground/20">Your logo will appear here...</span>
       )}

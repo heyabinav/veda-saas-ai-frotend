@@ -230,17 +230,46 @@
   stroke: var(--border-strong);
 }
 
-.diagram-host .c-blue rect { fill: var(--diagram-blue); stroke: var(--diagram-blue-stroke); }
-.diagram-host .c-teal rect { fill: var(--diagram-teal); stroke: var(--diagram-teal-stroke); }
-.diagram-host .c-purple rect { fill: var(--diagram-purple); stroke: var(--diagram-purple-stroke); }
-.diagram-host .c-amber rect { fill: var(--diagram-amber); stroke: var(--diagram-amber-stroke); }
-.diagram-host .c-coral rect { fill: var(--diagram-coral); stroke: var(--diagram-coral-stroke); }
-.diagram-host .c-green rect { fill: var(--diagram-green); stroke: var(--diagram-green-stroke); }
-.diagram-host .c-gray rect { fill: var(--diagram-gray); stroke: var(--diagram-gray-stroke); }
-.diagram-host .c-pink rect { fill: var(--diagram-pink); stroke: var(--diagram-pink-stroke); }
+.diagram-host .c-blue rect { fill: var(--diagram-blue) !important; stroke: var(--diagram-blue-stroke) !important; }
+.diagram-host .c-teal rect { fill: var(--diagram-teal) !important; stroke: var(--diagram-teal-stroke) !important; }
+.diagram-host .c-purple rect { fill: var(--diagram-purple) !important; stroke: var(--diagram-purple-stroke) !important; }
+.diagram-host .c-amber rect { fill: var(--diagram-amber) !important; stroke: var(--diagram-amber-stroke) !important; }
+.diagram-host .c-coral rect { fill: var(--diagram-coral) !important; stroke: var(--diagram-coral-stroke) !important; }
+.diagram-host .c-green rect { fill: var(--diagram-green) !important; stroke: var(--diagram-green-stroke) !important; }
+.diagram-host .c-gray rect { fill: var(--diagram-gray) !important; stroke: var(--diagram-gray-stroke) !important; }
+.diagram-host .c-pink rect { fill: var(--diagram-pink) !important; stroke: var(--diagram-pink-stroke) !important; }
+.diagram-host .c-blue ellipse, .diagram-host .c-blue polygon, .diagram-host .c-blue circle { fill: var(--diagram-blue) !important; stroke: var(--diagram-blue-stroke) !important; }
+.diagram-host .c-teal ellipse, .diagram-host .c-teal polygon, .diagram-host .c-teal circle { fill: var(--diagram-teal) !important; stroke: var(--diagram-teal-stroke) !important; }
+.diagram-host .c-purple ellipse, .diagram-host .c-purple polygon, .diagram-host .c-purple circle { fill: var(--diagram-purple) !important; stroke: var(--diagram-purple-stroke) !important; }
+.diagram-host .c-amber ellipse, .diagram-host .c-amber polygon, .diagram-host .c-amber circle { fill: var(--diagram-amber) !important; stroke: var(--diagram-amber-stroke) !important; }
+.diagram-host .c-coral ellipse, .diagram-host .c-coral polygon, .diagram-host .c-coral circle { fill: var(--diagram-coral) !important; stroke: var(--diagram-coral-stroke) !important; }
+.diagram-host .c-green ellipse, .diagram-host .c-green polygon, .diagram-host .c-green circle { fill: var(--diagram-green) !important; stroke: var(--diagram-green-stroke) !important; }
+.diagram-host .c-gray ellipse, .diagram-host .c-gray polygon, .diagram-host .c-gray circle { fill: var(--diagram-gray) !important; stroke: var(--diagram-gray-stroke) !important; }
+.diagram-host .c-pink ellipse, .diagram-host .c-pink polygon, .diagram-host .c-pink circle { fill: var(--diagram-pink) !important; stroke: var(--diagram-pink-stroke) !important; }
 
 .diagram-host .node:hover rect {
   filter: brightness(0.97);
+}
+
+.diagram-host svg text,
+.diagram-host svg tspan,
+.diagram-host svg .th,
+.diagram-host svg .t {
+  fill: var(--text-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.diagram-host svg .ts {
+  fill: var(--text-secondary) !important;
+  color: var(--text-secondary) !important;
+}
+
+.diagram-host svg .node rect,
+.diagram-host svg .node ellipse,
+.diagram-host svg .node polygon,
+.diagram-host svg .node circle {
+  stroke: var(--border-strong) !important;
+  fill: var(--diagram-gray) !important;
 }
 
 .diagram-html .card {
@@ -248,6 +277,7 @@
   border: 0.5px solid var(--border);
   border-radius: 12px;
   padding: 1rem;
+  color: var(--text-primary);
 }
 
 .diagram-html button {
@@ -262,6 +292,35 @@
 
 .diagram-html button:hover {
   background: var(--surface-1);
+}
+
+.diagram-html p,
+.diagram-html h1,
+.diagram-html h2,
+.diagram-html h3,
+.diagram-html h4,
+.diagram-html h5,
+.diagram-html h6,
+.diagram-html span,
+.diagram-html li,
+.diagram-html div,
+.diagram-html strong,
+.diagram-html em,
+.diagram-html label,
+.diagram-html a,
+.diagram-html td,
+.diagram-html th {
+  color: var(--text-primary) !important;
+}
+
+.diagram-html table,
+.diagram-html th,
+.diagram-html td {
+  border-color: var(--border) !important;
+}
+
+.diagram-html th {
+  background: var(--surface-1) !important;
 }
 
 /* ========================================
@@ -344,6 +403,56 @@
 html {
   scrollbar-width: thin;
   scrollbar-color: var(--sb-thumb) var(--sb-track);
+}
+
+/* ========================================
+   SKELETON LOADING SYSTEM
+   ======================================== */
+
+:root {
+  --skeleton-base: #ececf1;
+  --skeleton-highlight: rgba(255, 255, 255, 0.65);
+  --skeleton-duration: 1.6s;
+}
+
+.dark {
+  --skeleton-base: rgba(255, 255, 255, 0.08);
+  --skeleton-highlight: rgba(255, 255, 255, 0.06);
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--skeleton-base);
+  border-radius: 0.5rem;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--skeleton-highlight) 50%,
+    transparent 100%
+  );
+  animation: skeleton-shimmer var(--skeleton-duration) ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes skeleton-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /* Typing indicator dots */

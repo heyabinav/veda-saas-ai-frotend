@@ -3,11 +3,74 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Check, Copy, Pencil } from "lucide-react";
+import { Prism } from "@/lib/prism";
+import "@/lib/prism-languages";
 import {
   parseMessageBlocks,
   splitTextParagraphs,
   type MessageBlock,
 } from "@/lib/message-content";
+
+const LANG_NORMALIZE: Record<string, string> = {
+  js: "javascript",
+  jsx: "jsx",
+  ts: "typescript",
+  tsx: "tsx",
+  py: "python",
+  py3: "python",
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  html: "markup",
+  xml: "markup",
+  svg: "markup",
+  yml: "yaml",
+  md: "markdown",
+  mdx: "markdown",
+  cs: "csharp",
+  "c#": "csharp",
+  cpp: "cpp",
+  "c++": "cpp",
+  golang: "go",
+  rb: "ruby",
+  txt: "plain",
+  text: "plain",
+  plaintext: "plain",
+};
+
+const LANG_NAMES: Record<string, string> = {
+  markup: "HTML",
+  html: "HTML",
+  css: "CSS",
+  javascript: "JavaScript",
+  typescript: "TypeScript",
+  jsx: "JSX",
+  tsx: "TSX",
+  python: "Python",
+  bash: "Bash",
+  json: "JSON",
+  markdown: "Markdown",
+  sql: "SQL",
+  java: "Java",
+  c: "C",
+  cpp: "C++",
+  csharp: "C#",
+  ruby: "Ruby",
+  php: "PHP",
+  go: "Go",
+  rust: "Rust",
+  kotlin: "Kotlin",
+  swift: "Swift",
+  scala: "Scala",
+  yaml: "YAML",
+  docker: "Dockerfile",
+  plain: "Text",
+};
+
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 type MessageContentProps = {
   text: string;
@@ -120,36 +183,45 @@ function CodeBlock({ language, content }: { language: string; content: string })
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const rawLang = language.trim().toLowerCase();
+  const normalized = LANG_NORMALIZE[rawLang] ?? rawLang;
+  const displayName = LANG_NAMES[normalized] ?? LANG_NAMES[rawLang] ?? normalized;
+
+  const grammar = Prism.languages[normalized];
+  const highlighted = grammar
+    ? Prism.highlight(code, grammar, normalized)
+    : escapeHtml(code);
+
   return (
-    <div className="my-3 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-black/[0.03] border-b border-[var(--border)]">
-        <span className="text-[10px] font-medium text-foreground/40 uppercase tracking-wider">{language}</span>
-        <div className="flex items-center gap-1">
+    <div className="my-3 overflow-hidden rounded-xl border border-black/10 bg-[#0d1117] shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-3.5 py-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
+            <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
+            <span className="h-3 w-3 rounded-full bg-[#28c840]" />
+          </div>
+          <span className="truncate text-xs font-semibold text-white/80">{displayName}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
-            onClick={() => { setEditing(!editing); if (editing) setCode(code); }}
-            className="px-2 py-0.5 text-[10px] rounded text-foreground/40 hover:text-foreground/70 hover:bg-black/5 transition"
+            onClick={() => {
+              setEditing(!editing);
+              if (editing) setCode(code);
+            }}
+            aria-label="Edit code"
+            title="Edit code"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/10 hover:text-white/80"
           >
-            {editing ? "Done" : "Edit"}
+            <Pencil className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 px-2 py-0.5 text-[10px] rounded text-foreground/40 hover:text-foreground/70 hover:bg-black/5 transition"
+            aria-label="Copy code"
+            title="Copy code"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-white/15 text-white/60 transition-colors hover:border-white/30 hover:text-white"
           >
-            {copied ? (
-              <>
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-                Copied
-              </>
-            ) : (
-              <>
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                </svg>
-                Copy
-              </>
-            )}
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
@@ -157,12 +229,15 @@ function CodeBlock({ language, content }: { language: string; content: string })
         <textarea
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className="w-full p-3 text-xs leading-relaxed font-mono text-foreground/80 bg-transparent resize-y focus:outline-none"
+          className="w-full resize-y bg-transparent p-3.5 text-xs font-mono leading-relaxed text-white/85 focus:outline-none"
           rows={code.split("\n").length}
         />
       ) : (
-        <pre className="overflow-x-auto p-3 text-xs leading-relaxed font-mono text-foreground/80">
-          <code>{code}</code>
+        <pre className="overflow-x-auto p-3.5 text-[12.5px] leading-relaxed">
+          <code
+            className={`language-${normalized} font-mono`}
+            dangerouslySetInnerHTML={{ __html: highlighted }}
+          />
         </pre>
       )}
     </div>

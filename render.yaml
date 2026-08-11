@@ -16,3 +16,9 @@ services:
         fromEnvVar: NEXT_PUBLIC_SUPABASE_URL
       - key: SUPABASE_SERVICE_ROLE_KEY
         fromEnvVar: SUPABASE_SERVICE_ROLE_KEY
+      - key: NEXT_PUBLIC_API_URL
+        value: https://vedaapex-saas-ai.onrender.com
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://vedaapex-saas-ai.onrender.com
+      - key: AI_BRAIN_API_URL
+        value: https://vedaapex-saas-ai.onrender.com

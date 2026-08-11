@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import { Key, Plus, Trash2, RefreshCw, EyeOff, Activity, Gauge } from "lucide-react";
 import { apiRequest } from "@/lib/api";
+import { Skeleton, SkeletonList } from "@/components/ui/skeleton";
 
 type ApiKey = {
   key_id?: string;
@@ -147,30 +148,42 @@ export default function DeveloperPage() {
             )}
 
             {/* Limits panel */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-busy={loading}>
               <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-2 text-sm text-foreground/50 mb-2">
                   <Activity className="h-4 w-4" /> Total Usage
                 </div>
-                <p className="text-3xl font-bold text-foreground">
-                  {loading ? "—" : (usage?.total_calls ?? 0).toLocaleString("en-US")}
-                </p>
+                {loading ? (
+                  <Skeleton rounded="sm" className="h-9 w-24" />
+                ) : (
+                  <p className="text-3xl font-bold text-foreground">
+                    {(usage?.total_calls ?? 0).toLocaleString("en-US")}
+                  </p>
+                )}
               </div>
               <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-2 text-sm text-foreground/50 mb-2">
                   <Gauge className="h-4 w-4" /> Remaining Credits
                 </div>
-                <p className="text-3xl font-bold text-foreground">
-                  {loading ? "—" : (limits?.credits_used !== undefined || limits?.requests_remaining !== undefined ? (limits?.requests_remaining ?? limits?.credits_used ?? 0) : (limits?.daily_limit ?? 0)).toLocaleString("en-US")}
-                </p>
+                {loading ? (
+                  <Skeleton rounded="sm" className="h-9 w-28" />
+                ) : (
+                  <p className="text-3xl font-bold text-foreground">
+                    {(limits?.credits_used !== undefined || limits?.requests_remaining !== undefined ? (limits?.requests_remaining ?? limits?.credits_used ?? 0) : (limits?.daily_limit ?? 0)).toLocaleString("en-US")}
+                  </p>
+                )}
               </div>
               <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-2 text-sm text-foreground/50 mb-2">
                   <Gauge className="h-4 w-4" /> Daily Limit
                 </div>
-                <p className="text-3xl font-bold text-foreground">
-                  {loading ? "—" : (limits?.daily_limit ?? 0).toLocaleString("en-US")}
-                </p>
+                {loading ? (
+                  <Skeleton rounded="sm" className="h-9 w-20" />
+                ) : (
+                  <p className="text-3xl font-bold text-foreground">
+                    {(limits?.daily_limit ?? 0).toLocaleString("en-US")}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -210,12 +223,12 @@ export default function DeveloperPage() {
             </div>
 
             {/* Keys list */}
-            <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm">
+            <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm" aria-busy={loading}>
               <h2 className="mb-4 font-semibold text-foreground">Your API keys</h2>
-              {keys.length === 0 ? (
-                <p className="py-8 text-center text-sm text-foreground/40">
-                  {loading ? "Loading keys..." : "No API keys yet. Generate one above."}
-                </p>
+              {loading ? (
+                <SkeletonList count={3} className="py-2" trailing={false} />
+              ) : keys.length === 0 ? (
+                <p className="py-8 text-center text-sm text-foreground/40">No API keys yet. Generate one above.</p>
               ) : (
                 <div className="divide-y divide-black/5">
                   {keys.map((k) => (

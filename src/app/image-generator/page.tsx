@@ -5,6 +5,7 @@ import CanvasGenerator from "@/components/CanvasGenerator";
 import { Download, Share2, ImageIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { apiRequest } from "@/lib/api";
+import { SkeletonImage } from "@/components/ui/skeleton";
 
 type Generation = {
   id: string;
@@ -138,11 +139,13 @@ export default function ImageGenerator() {
     >
       {generatedImage ? (
         <div className="relative group max-h-full max-w-full">
-          <img
-            src={generatedImage}
-            alt="Generated"
-            className="rounded-2xl shadow-2xl transition-transform duration-500 group-hover:scale-[1.01]"
-          />
+          <SkeletonImage className="min-h-[320px] min-w-[280px]">
+            <img
+              src={generatedImage}
+              alt="Generated"
+              className="rounded-2xl shadow-2xl transition-transform duration-500 group-hover:scale-[1.01]"
+            />
+          </SkeletonImage>
           <div className="absolute bottom-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <button className="rounded-full bg-white/90 p-2 shadow-lg hover:bg-white">
               <Download className="h-4 w-4" />

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
 import { ENDPOINTS } from "@/config/api";
 import { Eye, EyeOff, Mail, Lock } from "lucide-react";
+import { SkeletonImage } from "@/components/ui/skeleton";
 
 function LoginContent() {
   const router = useRouter();
@@ -159,13 +160,15 @@ function LoginContent() {
           {/* Interactive Workspace Mockup Card */}
           <div className="relative rounded-2xl overflow-hidden border border-[#E3E0D8] dark:border-[#2E302A] shadow-xl bg-[#F5F4F0] dark:bg-[#1E201B] p-2.5 group transition-all duration-500 hover:shadow-2xl hover:border-[#D4D1C9] dark:hover:border-[#3E403A]" style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06)' }}>
             <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl">
-              <Image
-                src="/dashboard-preview.png"
-                alt="VedaApex Workspace Interface"
-                fill
-                sizes="(max-width: 1024px) 100vw, 50vw"
-                className="object-cover object-top transition-transform duration-700 group-hover:scale-[1.01]"
-              />
+              <SkeletonImage className="absolute inset-0" rounded="none">
+                <Image
+                  src="/dashboard-preview.png"
+                  alt="VedaApex Workspace Interface"
+                  fill
+                  sizes="(max-width: 1024px) 100vw, 50vw"
+                  className="object-cover object-top transition-transform duration-700 group-hover:scale-[1.01]"
+                />
+              </SkeletonImage>
             </div>
           </div>
         </div>

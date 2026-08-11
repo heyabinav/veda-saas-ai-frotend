@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { Wallet as WalletIcon, Gift, Flame, ArrowDownLeft, ArrowUpRight, RefreshCw, TrendingUp, CheckCircle2, Info, AlertCircle } from "lucide-react";
 import { apiRequest } from "@/lib/api";
+import { Skeleton, SkeletonList } from "@/components/ui/skeleton";
 
 type PlanTier = "free" | "200" | "500" | "1000";
 
@@ -186,13 +187,13 @@ export default function WalletPage() {
             )}
 
             {/* Balance cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-busy={loading}>
               <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-2 text-sm text-foreground/50 mb-2">
                   <WalletIcon className="h-4 w-4" /> Total Balance
                 </div>
                 {loading ? (
-                  <div className="h-8 w-24 animate-pulse rounded-lg bg-black/5" />
+                  <Skeleton rounded="sm" className="h-9 w-24" />
                 ) : (
                   <p className="text-3xl font-bold text-foreground">{balance !== null ? balance.toLocaleString("en-US") : "—"}</p>
                 )}
@@ -202,18 +203,26 @@ export default function WalletPage() {
                 <div className="flex items-center gap-2 text-sm text-foreground/50 mb-2">
                   <Flame className="h-4 w-4" /> Current Streak
                 </div>
-                <p className="text-3xl font-bold text-foreground">
-                  {loading ? "—" : `${streak?.current_streak ?? streak?.streak_days ?? 0} days`}
-                </p>
+                {loading ? (
+                  <Skeleton rounded="sm" className="h-9 w-32" />
+                ) : (
+                  <p className="text-3xl font-bold text-foreground">
+                    {`${streak?.current_streak ?? streak?.streak_days ?? 0} days`}
+                  </p>
+                )}
               </div>
 
               <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm">
                 <div className="flex items-center gap-2 text-sm text-foreground/50 mb-2">
                   <TrendingUp className="h-4 w-4" /> Referrals
                 </div>
-                <p className="text-3xl font-bold text-foreground">
-                  {loading ? "—" : (referrals?.total_referrals ?? referrals?.referral_count ?? 0)}
-                </p>
+                {loading ? (
+                  <Skeleton rounded="sm" className="h-9 w-20" />
+                ) : (
+                  <p className="text-3xl font-bold text-foreground">
+                    {(referrals?.total_referrals ?? referrals?.referral_count ?? 0)}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -280,9 +289,11 @@ export default function WalletPage() {
             ) : null}
 
             {/* Transactions */}
-            <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm">
+            <div className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm" aria-busy={loading}>
               <h2 className="mb-4 font-semibold text-foreground">Transactions</h2>
-              {transactions.length === 0 ? (
+              {loading ? (
+                <SkeletonList count={4} className="py-2" />
+              ) : transactions.length === 0 ? (
                 <p className="py-8 text-center text-sm text-foreground/40">No transactions yet.</p>
               ) : (
                 <div className="divide-y divide-black/5">

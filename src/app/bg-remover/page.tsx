@@ -5,6 +5,7 @@ import CanvasGenerator from "@/components/CanvasGenerator";
 import { ImageIcon, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { apiRequest } from "@/lib/api";
+import { SkeletonImage } from "@/components/ui/skeleton";
 
 export default function BGRemoverPage() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -55,7 +56,9 @@ export default function BGRemoverPage() {
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
         {result ? (
           <div className="space-y-4">
-            <img src={result} alt="Background Removed" className="max-h-[400px] rounded-xl shadow-lg" />
+            <SkeletonImage className="min-h-[300px] min-w-[200px]">
+              <img src={result} alt="Background Removed" className="max-h-[400px] rounded-xl shadow-lg" />
+            </SkeletonImage>
             <button className="flex items-center gap-2 bg-primary text-white px-6 py-2 rounded-lg" onClick={() => window.open(result)}>
               <Download className="h-4 w-4" /> Download
             </button>
