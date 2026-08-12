@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 import type { Chat, Folder, Message } from "@/types";
+import { clearLocalBackendUser } from "@/lib/chat-memory";
 
 export function SidebarItem({
   icon: Icon,
@@ -163,7 +164,9 @@ export default function Sidebar({
     document.cookie = "auth_token=; path=/; max-age=0";
     document.cookie = "user_name=; path=/; max-age=0";
     document.cookie = "user_email=; path=/; max-age=0";
+    document.cookie = "user_plan=; path=/; max-age=0";
     document.cookie = "guest_session=; path=/; max-age=0";
+    clearLocalBackendUser();
     setCookieUser(null);
     router.replace("/login");
   }

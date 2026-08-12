@@ -153,3 +153,45 @@ export async function hasBackendToken(): Promise<boolean> {
   }
   return false;
 }
+
+export type LocalBackendUser = {
+  id: string;
+  email: string;
+  name: string;
+  plan: string;
+  avatar: string;
+};
+
+// Backend OAuth/email logins (no Supabase session) persist the user under
+// "vedaapex_user" — this reads it back so the app can treat them as logged in.
+export function getLocalBackendUser(): LocalBackendUser | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("vedaapex_user");
+    if (!raw) return null;
+    const u = JSON.parse(raw) as Record<string, unknown>;
+    const id = typeof u?.id === "string" ? u.id : u?.id != null ? String(u.id) : "";
+    if (!id) return null;
+    return {
+      id,
+      email: typeof u?.email === "string" ? u.email : "",
+      name: typeof u?.name === "string" ? u.name : "",
+      plan: typeof u?.plan === "string" ? u.plan : "",
+      avatar: typeof u?.avatar === "string" ? u.avatar : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function clearLocalBackendUser(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem("vedaapex_user");
+    window.localStorage.removeItem("vedaapex_user_id");
+    window.localStorage.removeItem("vedaapex-avatar");
+    window.dispatchEvent(new Event("vedaapex-user-updated"));
+  } catch {
+    // ignore storage errors
+  }
+}

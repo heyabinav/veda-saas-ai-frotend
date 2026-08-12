@@ -70,7 +70,7 @@ import {
   foldersKey,
 } from "@/lib/supabase/chat";
 import { THINKING_MESSAGES } from "@/lib/thinking-messages";
-import { ensureCloudSession, hasBackendToken } from "@/lib/chat-memory";
+import { ensureCloudSession, getLocalBackendUser, hasBackendToken } from "@/lib/chat-memory";
 import OAuthModal from "@/components/OAuthModal";
 import ConnectorLogo from "@/components/ConnectorLogo";
 import {
@@ -602,24 +602,45 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     const newPlan = promoMap[code];
     
     if (newPlan && user) {
-        const { data, error } = await supabase.auth.updateUser({
-          data: { plan: newPlan }
-        });
-        
-        if (error) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) {
+          // Backend OAuth/email login (no Supabase session): persist locally.
+          try {
+            const savedUser = JSON.parse(window.localStorage.getItem("vedaapex_user") ?? "{}");
+            if (savedUser && typeof savedUser === "object") savedUser.plan = newPlan;
+            window.localStorage.setItem("vedaapex_user", JSON.stringify(savedUser));
+          } catch (e) {
+            console.error("Could not update local user plan:", e);
+          }
+          setUser(prev => prev ? {
+            ...prev,
+            user_metadata: { ...prev.user_metadata, plan: newPlan }
+          } : null);
+          document.cookie = `user_plan=${encodeURIComponent(newPlan)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+          window.dispatchEvent(new Event("vedaapex-user-updated"));
+          alert("Plan upgraded successfully!");
+          setPromoModalOpen(false);
+          setPromoCode("");
+        } else {
+          const { data, error } = await supabase.auth.updateUser({
+            data: { plan: newPlan }
+          });
+
+          if (error) {
             console.error("Supabase update error:", error);
             alert("Error: " + error.message);
-        } else {
+          } else {
             // Update local user state immediately
-            setUser(prev => prev ? { 
-                ...prev, 
-                user_metadata: { ...prev.user_metadata, plan: newPlan } 
+            setUser(prev => prev ? {
+              ...prev,
+              user_metadata: { ...prev.user_metadata, plan: newPlan }
             } : null);
             document.cookie = `user_plan=${encodeURIComponent(newPlan)}; path=/; max-age=${365 * 24 * 60 * 60}`;
-            
+
             alert("Plan upgraded successfully!");
             setPromoModalOpen(false);
             setPromoCode("");
+          }
         }
     } else {
         alert("Invalid promo code");
@@ -658,17 +679,54 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
   }, [activeChatId, chats]);
 
-  // Monitor auth state
+  // Monitor auth state. Backend OAuth/email logins have no Supabase session,
+  // so fall back to the saved "vedaapex_user" record to stay logged in.
   useEffect(() => {
+    const applyUser = (supabaseUser: User | null) => {
+      if (supabaseUser) {
+        setUser(supabaseUser);
+        return;
+      }
+      const local = getLocalBackendUser();
+      if (local) {
+        setUser({
+          id: local.id,
+          email: local.email || undefined,
+          aud: "authenticated",
+          app_metadata: {},
+          user_metadata: {
+            plan: local.plan,
+            avatar: local.avatar,
+            full_name: local.name,
+            username: local.name,
+          },
+          created_at: new Date().toISOString(),
+        } as User);
+      } else {
+        setUser(null);
+      }
+    };
+
     supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user ?? null);
+      applyUser(data.session?.user ?? null);
       setAuthResolved(true);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUser(session?.user ?? null);
+      applyUser(session?.user ?? null);
       setAuthResolved(true);
     });
-    return () => subscription.unsubscribe();
+
+    const onUserUpdated = () => {
+      supabase.auth.getSession().then(({ data }) => {
+        if (!data.session) applyUser(null);
+      });
+    };
+    window.addEventListener("vedaapex-user-updated", onUserUpdated);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("vedaapex-user-updated", onUserUpdated);
+    };
   }, []);
 
   useEffect(() => {
