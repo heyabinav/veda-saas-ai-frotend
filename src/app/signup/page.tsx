@@ -19,6 +19,7 @@ function SignupContent() {
   const [username, setUsername] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
 
@@ -58,7 +59,7 @@ function SignupContent() {
         payload?.accessToken;
 
       if (!token) {
-        // Registration succeeded but no token — treat as "verify your email" flow
+        // Registration succeeded but no token — "verify your email" flow
         setLoading(false);
         document.cookie = "guest_session=; path=/; max-age=0";
         document.cookie = "guest_expires=; path=/; max-age=0";
@@ -66,7 +67,10 @@ function SignupContent() {
         if (username.trim()) {
           document.cookie = `user_name=${encodeURIComponent(username.trim())}; path=/; max-age=${365 * 24 * 60 * 60}`;
         }
-        router.replace("/login");
+        setSuccess(
+          `Account created! A verification link has been sent to ${email.trim()}. Please verify your email, then sign in.`,
+        );
+        setTimeout(() => router.replace("/login"), 3500);
         return;
       }
 
@@ -79,7 +83,38 @@ function SignupContent() {
       if (email.trim()) {
         document.cookie = `user_email=${encodeURIComponent(email.trim())}; path=/; max-age=${365 * 24 * 60 * 60}`;
       }
-      router.replace(destination);
+
+      // Persist the full user record so the app instantly treats them as logged in
+      const payloadUser = payload?.user && typeof payload.user === "object" ? payload.user : payload;
+      const userId = payloadUser?.id || payloadUser?.user_id || payload?.user_id || payload?.id || "";
+      const userPlan =
+        payload?.plan ||
+        payloadUser?.plan ||
+        payload?.user_metadata?.plan ||
+        payloadUser?.user_metadata?.plan ||
+        "";
+      const name = username.trim() || payloadUser?.name || String(payloadUser?.email || email.trim()).split("@")[0];
+      try {
+        const savedUser: Record<string, unknown> = {
+          id: userId,
+          name,
+          email: email.trim(),
+          plan: userPlan,
+          avatar: "",
+          provider: "email",
+          raw: payloadUser,
+        };
+        localStorage.setItem("vedaapex_user", JSON.stringify(savedUser));
+        if (userId) {
+          localStorage.setItem("vedaapex_user_id", String(userId));
+        }
+        window.dispatchEvent(new Event("vedaapex-user-updated"));
+      } catch (e) {
+        console.warn("Could not persist user record:", e);
+      }
+
+      setSuccess("Account created! You are now signed in.");
+      setTimeout(() => router.replace(destination), 800);
     } catch (err) {
       setLoading(false);
       setError("An error occurred. Please try again.");
@@ -315,6 +350,13 @@ function SignupContent() {
             {error && (
               <div className="p-3.5 rounded-xl bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50">
                 <p className="text-xs text-red-600 dark:text-red-400 font-medium">{error}</p>
+              </div>
+            )}
+
+            {/* Success message */}
+            {success && (
+              <div className="p-3.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50">
+                <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{success}</p>
               </div>
             )}
 

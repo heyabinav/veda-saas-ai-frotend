@@ -35,7 +35,12 @@ function LoginContent() {
 
       if (!res.ok) {
         setLoading(false);
-        setError(data?.message || data?.detail || "Login failed. Please try again.");
+        const msg = data?.message || data?.detail || "Login failed. Please try again.";
+        if (/confirm|verify|not confirmed/i.test(msg)) {
+          setError(`${msg} Check your inbox (including spam) for the verification link.`);
+        } else {
+          setError(msg);
+        }
         return;
       }
 

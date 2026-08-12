@@ -122,22 +122,31 @@ export default function Sidebar({
     return () => subscription.unsubscribe();
   }, []);
 
-  // Read saved login details (backend/cookie login) — shows in sidebar at the login-option spot
+  // Read saved login details (backend/cookie login) — shows in sidebar at the
+  // login-option spot. Re-reads on login/logout events so the profile appears
+  // immediately after sign-in without a page reload.
   useEffect(() => {
-    const read = (key: string) => {
-      const match = document.cookie.split("; ").find((c) => c.startsWith(`${key}=`));
-      if (!match) return "";
-      try {
-        return decodeURIComponent(match.slice(key.length + 1));
-      } catch {
-        return match.slice(key.length + 1);
-      }
+    const readCookieUser = () => {
+      const read = (key: string) => {
+        const match = document.cookie.split("; ").find((c) => c.startsWith(`${key}=`));
+        if (!match) return "";
+        try {
+          return decodeURIComponent(match.slice(key.length + 1));
+        } catch {
+          return match.slice(key.length + 1);
+        }
+      };
+      const name = read("user_name");
+      const email = read("user_email");
+      setCookieUser(name || email ? { name: name || email.split("@")[0] || "User", email } : null);
     };
-    const name = read("user_name");
-    const email = read("user_email");
-    if (name || email) {
-      setCookieUser({ name: name || email.split("@")[0] || "User", email });
-    }
+    readCookieUser();
+    window.addEventListener("vedaapex-user-updated", readCookieUser);
+    window.addEventListener("storage", readCookieUser);
+    return () => {
+      window.removeEventListener("vedaapex-user-updated", readCookieUser);
+      window.removeEventListener("storage", readCookieUser);
+    };
   }, []);
 
   // Read shared avatar from localStorage (set from Settings page) — works for cookie/backend login too
