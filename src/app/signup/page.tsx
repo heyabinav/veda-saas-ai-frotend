@@ -178,9 +178,9 @@ function SignupContent() {
             <Image
               src="/logo.svg"
               alt="VedaApex Logo"
-              width={56}
-              height={56}
-              className="h-14 w-14 mx-auto object-contain drop-shadow-sm transition-transform duration-300 hover:scale-105"
+              width={128}
+              height={128}
+              className="h-32 w-32 mx-auto object-contain transition-transform duration-300 hover:scale-105"
             />
             <h1 className="text-3xl font-serif font-medium text-[#191919] dark:text-[#E8E6E0] tracking-tight">
               Create your account

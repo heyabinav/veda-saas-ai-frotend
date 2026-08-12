@@ -63,8 +63,14 @@ import {
   saveFolderToSupabase,
   deleteFolderFromSupabase,
   getFoldersFromSupabase,
+  getStoredChatsSync,
+  getStoredFoldersSync,
+  migrateGuestChatsToUser,
+  chatsKey,
+  foldersKey,
 } from "@/lib/supabase/chat";
 import { THINKING_MESSAGES } from "@/lib/thinking-messages";
+import { ensureCloudSession, hasBackendToken } from "@/lib/chat-memory";
 import OAuthModal from "@/components/OAuthModal";
 import ConnectorLogo from "@/components/ConnectorLogo";
 import {
@@ -193,6 +199,10 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const [wizardOpen, setWizardOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [promoModalOpen, setPromoModalOpen] = useState(false);
+  const userId = user?.id ?? null;
+  const chatsRef = useRef<Chat[]>([]);
+  const loadedScopeRef = useRef<string | null>(null);
+  const firstStorageRunRef = useRef(true);
   const customLogoInputRef = useRef<HTMLInputElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -671,59 +681,35 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
   }, [mounted, authResolved, user]);
 
-  // Load state from localStorage or Supabase
+  // Load state from localStorage (per-user scoped)
   useEffect(() => {
     let active = true;
 
     async function loadData() {
       if (user) {
         try {
+          // Move guest chats into this user's bucket so history survives login
+          await migrateGuestChatsToUser(user.id).catch(console.error);
+
           const [dbChats, dbFolders] = await Promise.all([
-            getChatsFromSupabase().catch(() => []),
-            getFoldersFromSupabase().catch(() => [])
+            getChatsFromSupabase(user.id).catch(() => []),
+            getFoldersFromSupabase(user.id).catch(() => [])
           ]);
 
           if (!active) return;
 
-          // Migrate local storage chats to supabase if supabase is empty
-          const savedChats = localStorage.getItem("apex_chats_v2");
-          const savedFolders = localStorage.getItem("apex_folders");
-
-          let finalChats = dbChats;
+          // Ensure default folder :C exists
           let finalFolders = dbFolders;
-
-          if (dbChats.length === 0 && savedChats) {
-            try {
-              const localChats = JSON.parse(savedChats) as Chat[];
-              if (localChats.length > 0) {
-                await Promise.all(localChats.map(c => saveChatToSupabase(c).catch(console.error)));
-                finalChats = localChats;
-              }
-            } catch (e) {
-              console.error("Failed to migrate local chats", e);
-            }
-          }
-
-          if (dbFolders.length === 0 && savedFolders) {
-            try {
-              const localFolders = JSON.parse(savedFolders) as Folder[];
-              if (localFolders.length > 1 || (localFolders.length === 1 && localFolders[0].name !== ":C")) {
-                await Promise.all(localFolders.map(f => saveFolderToSupabase(f).catch(console.error)));
-                finalFolders = localFolders;
-              }
-            } catch (e) {
-              console.error("Failed to migrate local folders", e);
-            }
-          }
 
           // Ensure default folder :C exists
           if (finalFolders.length === 0) {
             const defaultFolder = { id: "folder-c", name: ":C" };
             finalFolders = [defaultFolder];
-            await saveFolderToSupabase(defaultFolder).catch(console.error);
+            await saveFolderToSupabase(defaultFolder, user.id).catch(console.error);
           }
 
-          setChats(finalChats);
+          loadedScopeRef.current = user.id;
+          setChats(dbChats);
           setFolders(finalFolders);
         } catch (e) {
           console.error("Failed to fetch data from Supabase", e);
@@ -736,29 +722,15 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
 
     function loadFromLocalStorage() {
-      const savedChats = localStorage.getItem("apex_chats_v2");
-      const savedFolders = localStorage.getItem("apex_folders");
-      
-      if (savedChats) {
-        try {
-          setChats(JSON.parse(savedChats));
-        } catch (e) {
-          console.error("Failed to load chats", e);
-        }
-      } else {
-        setChats([]);
-      }
-      
-      if (savedFolders) {
-        try {
-          setFolders(JSON.parse(savedFolders));
-        } catch (e) {
-          console.error("Failed to load folders", e);
-        }
-      } else {
+      setChats(getStoredChatsSync(null));
+      setFolders(getStoredFoldersSync(null));
+      loadedScopeRef.current = null;
+
+      const savedFolders = getStoredFoldersSync(null);
+      if (savedFolders.length === 0) {
         const defaultFolder = { id: "folder-c", name: ":C" };
         setFolders([defaultFolder]);
-        localStorage.setItem("apex_folders", JSON.stringify([defaultFolder]));
+        localStorage.setItem(foldersKey(null), JSON.stringify([defaultFolder]));
       }
       setChatsLoading(false);
     }
@@ -770,24 +742,39 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     };
   }, [user]);
 
-  // Backup saves to localStorage on local state changes
+  // Backup saves to localStorage on local state changes (per-user scoped).
+  // Skips the first run so a fresh mount never wipes previously saved chats,
+  // and skips writes until the active storage scope has been loaded.
   useEffect(() => {
+    if (firstStorageRunRef.current) {
+      firstStorageRunRef.current = false;
+      return;
+    }
+    if (loadedScopeRef.current !== userId) return;
     try {
       // Strip heavy base64 file payloads — they blow past the localStorage
       // quota (QuotaExceededError) when images/videos are attached.
-      localStorage.setItem("apex_chats_v2", JSON.stringify(sanitizeChatsForStorage(chats)));
+      localStorage.setItem(chatsKey(userId), JSON.stringify(sanitizeChatsForStorage(chats)));
     } catch {
       // localStorage full or unavailable — skip the backup, never crash the app
     }
-  }, [chats]);
+  }, [chats, userId]);
 
   useEffect(() => {
+    if (firstStorageRunRef.current) return;
+    if (loadedScopeRef.current !== userId) return;
     try {
-      localStorage.setItem("apex_folders", JSON.stringify(folders));
+      localStorage.setItem(foldersKey(userId), JSON.stringify(folders));
     } catch {
       // ignore storage errors
     }
-  }, [folders]);
+  }, [folders, userId]);
+
+  // Keep a live mirror of chats for imperative handlers (send/edit) so
+  // state updates never run against a stale closure.
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
 
   function openChat(id: string | null) {
     setActiveChatId(id);
@@ -808,9 +795,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   async function createFolder(name: string) {
     const newFolder: Folder = { id: Date.now().toString(), name };
     setFolders([...folders, newFolder]);
-    if (user) {
-      await saveFolderToSupabase(newFolder).catch(console.error);
-    }
+    await saveFolderToSupabase(newFolder, userId).catch(console.error);
   }
 
   async function deleteFolder(id: string) {
@@ -818,12 +803,10 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     const updatedChats = chats.map(c => c.folderId === id ? { ...c, folderId: undefined } : c);
     setChats(updatedChats);
     
-    if (user) {
-      await deleteFolderFromSupabase(id).catch(console.error);
-      // Update orphaned chats in database to have no folder
-      const orphanedChats = updatedChats.filter(c => c.folderId === undefined);
-      await Promise.all(orphanedChats.map(c => saveChatToSupabase(c).catch(console.error)));
-    }
+    await deleteFolderFromSupabase(id, userId).catch(console.error);
+    // Update orphaned chats to have no folder
+    const orphanedChats = updatedChats.filter(c => c.folderId === undefined);
+    await Promise.all(orphanedChats.map(c => saveChatToSupabase(c, userId).catch(console.error)));
   }
 
   async function deleteChat(id: string) {
@@ -833,17 +816,15 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       setMessages([]);
       setBarDocked(false);
     }
-    if (user) {
-      await deleteChatFromSupabase(id).catch(console.error);
-    }
+    await deleteChatFromSupabase(id, userId).catch(console.error);
   }
 
   async function renameChat(id: string, newName: string) {
     const updatedChats = chats.map(c => c.id === id ? { ...c, name: newName } : c);
     setChats(updatedChats);
     const targetChat = updatedChats.find(c => c.id === id);
-    if (targetChat && user) {
-      await saveChatToSupabase(targetChat).catch(console.error);
+    if (targetChat) {
+      await saveChatToSupabase(targetChat, userId).catch(console.error);
     }
   }
 
@@ -851,8 +832,8 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     const updatedFolders = folders.map(f => f.id === id ? { ...f, name: newName } : f);
     setFolders(updatedFolders);
     const targetFolder = updatedFolders.find(f => f.id === id);
-    if (targetFolder && user) {
-      await saveFolderToSupabase(targetFolder).catch(console.error);
+    if (targetFolder) {
+      await saveFolderToSupabase(targetFolder, userId).catch(console.error);
     }
   }
 
@@ -860,8 +841,8 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     const updatedChats = chats.map(c => c.id === chatId ? { ...c, folderId } : c);
     setChats(updatedChats);
     const targetChat = updatedChats.find(c => c.id === chatId);
-    if (targetChat && user) {
-      await saveChatToSupabase(targetChat).catch(console.error);
+    if (targetChat) {
+      await saveChatToSupabase(targetChat, userId).catch(console.error);
     }
   }
 
@@ -936,6 +917,34 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     setIsThinking(true); // Start thinking animation
     setToolsOpen(false); // Close tools menu on send
 
+    // Chat is created (and saved to history) IMMEDIATELY with the user's
+    // first message — the sidebar shows it even before the AI replies, and
+    // nothing is lost if the reply fails or the tab closes.
+    let chatId = activeChatId;
+    const existingChat = chatId ? chatsRef.current.find((c) => c.id === chatId) : undefined;
+    const isNewChat = !existingChat;
+    let chatSnapshot: Chat | undefined;
+    if (!existingChat) {
+      const newId = Date.now().toString();
+      const defaultFolder = folders.find(f => f.name === ":C")?.id;
+      chatSnapshot = {
+        id: newId,
+        name: "New Chat",
+        messages: currentMessages,
+        createdAt: Date.now(),
+        folderId: defaultFolder,
+      };
+      setChats((prev) => [chatSnapshot!, ...prev]);
+      if (!chatId) {
+        setActiveChatId(newId);
+        window.history.pushState(null, "", `/c/${newId}`);
+      }
+      chatId = newId;
+    } else {
+      chatSnapshot = { ...existingChat, messages: currentMessages };
+    }
+    await saveChatToSupabase(chatSnapshot, userId).catch(console.error);
+
     const assistantMsg = await fetchAssistantReply(text, sentAt, filesData);
 
     setIsThinking(false); // Stop thinking animation
@@ -943,38 +952,13 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     setMessages(nextMessages);
     setShowDisclaimer(true);
 
-    if (!activeChatId) {
-      const newId = Date.now().toString();
-      const defaultFolder = folders.find(f => f.name === ":C")?.id;
-      const newChatObj: Chat = {
-        id: newId,
-        name: "New Chat",
-        messages: nextMessages,
-        createdAt: Date.now(),
-        folderId: defaultFolder,
-      };
-      setChats((prev) => [newChatObj, ...prev]);
-      setActiveChatId(newId);
-      window.history.pushState(null, "", `/c/${newId}`);
-      if (user) {
-        await saveChatToSupabase(newChatObj).catch(console.error);
-      }
+    const updatedChat = { ...chatSnapshot, messages: nextMessages };
+    setChats((prev) => prev.map((c) => (c.id === chatId ? updatedChat : c)));
+    await saveChatToSupabase(updatedChat, userId).catch(console.error);
 
-      // Generate title via AI after first message
-      generateChatTitle(newId, text).catch(console.error);
-    } else {
-      setChats((prev) => {
-        const currentChat = prev.find((c) => c.id === activeChatId);
-        if (!currentChat) return prev;
-        const updatedChat: Chat = {
-          ...currentChat,
-          messages: nextMessages,
-        };
-        if (user) {
-          saveChatToSupabase(updatedChat).catch(console.error);
-        }
-        return prev.map((c) => (c.id === activeChatId ? updatedChat : c));
-      });
+    // Generate title via AI after first message
+    if (isNewChat) {
+      generateChatTitle(chatId!, text).catch(console.error);
     }
   }
 
@@ -1008,8 +992,8 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
         return next;
       });
       setTimeout(() => {
-        if (updatedChat && user) {
-          saveChatToSupabase(updatedChat).catch(console.error);
+        if (updatedChat) {
+          saveChatToSupabase(updatedChat, userId).catch(console.error);
         }
       }, 0);
     } catch {
@@ -1052,12 +1036,26 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
 
     try {
+      // Create/link a backend cloud chat session (Chat Memory) so history
+      // survives across devices — only when the user is logged in.
+      let cloudSessionId: string | null = null;
+      if (activeChatId) {
+        try {
+          if (await hasBackendToken()) {
+            cloudSessionId = await ensureCloudSession(activeChatId);
+          }
+        } catch (e) {
+          console.warn("Cloud session setup failed:", e);
+        }
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers,
         body: JSON.stringify({
           message: text,
           chat_id: activeChatId,
+          session_id: cloudSessionId,
           model,
           intent: "general",
           responseMode: "structured",
@@ -1104,9 +1102,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
         ...currentChat,
         messages: nextMessages,
       };
-      if (user) {
-        saveChatToSupabase(updatedChat).catch(console.error);
-      }
+      saveChatToSupabase(updatedChat, userId).catch(console.error);
       return prev.map((c) => (c.id === activeChatId ? updatedChat : c));
     });
   };
@@ -1135,6 +1131,29 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
   };
 
+  const nativeShare = async (text: string) => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      try {
+        await navigator.share({ text, url });
+        return true;
+      } catch (e) {
+        // AbortError = user cancelled the native sheet; treat as handled
+        if ((e as any)?.name === "AbortError") return true;
+      }
+    }
+    return false;
+  };
+
+  const shareToWhatsApp = (text: string) => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    window.open(
+      `https://wa.me/?text=${encodeURIComponent(`${text}\n\n${url}`)}`,
+      "_blank",
+    );
+    setShareOpenIdx(null);
+  };
+
   const shareToGmail = (text: string) => {
     window.open(
       `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(
@@ -1146,12 +1165,17 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   };
 
   const shareToInstagram = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setInstaCopied(true);
-      setTimeout(() => setInstaCopied(false), 2000);
-    } catch {
-      // clipboard unavailable
+    // Instagram has no public web share URL — use the native OS share sheet
+    // (opens the Instagram app on mobile). Fallback: copy to clipboard.
+    const shared = await nativeShare(text).catch(() => false);
+    if (!shared) {
+      try {
+        await navigator.clipboard.writeText(text);
+        setInstaCopied(true);
+        setTimeout(() => setInstaCopied(false), 2000);
+      } catch {
+        // clipboard unavailable
+      }
     }
     setShareOpenIdx(null);
   };
@@ -1699,6 +1723,16 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                             </button>
                             {shareOpenIdx === i && (
                               <div className="absolute bottom-full left-0 z-50 mb-2 flex items-center gap-1 rounded-xl border border-black/[0.06] bg-white p-1.5 shadow-lg">
+                                <button
+                                  onClick={() => shareToWhatsApp(m.text)}
+                                  aria-label="Share on WhatsApp"
+                                  title="WhatsApp"
+                                  className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-black/5"
+                                >
+                                  <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#25D366]">
+                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                                  </svg>
+                                </button>
                                 <button
                                   onClick={() => shareToGmail(m.text)}
                                   aria-label="Share on Gmail"

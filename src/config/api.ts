@@ -83,6 +83,7 @@ export const ENDPOINTS = {
   devSubscription: `${API_URL}/api/v1/api-keys/subscription`,
 
   // Payments
+  paymentsConfig: `${API_URL}/api/v1/payments/config`,
   createOrder: `${API_URL}/api/v1/payments/orders`,
   verifyPayment: `${API_URL}/api/v1/payments/verify`,
   verifyAndUpgrade: `${API_URL}/api/v1/payments/verify-payment`,
@@ -161,6 +162,21 @@ export const ENDPOINTS = {
   managedConnectorAuthScaffold: (authType: string) =>
     `${API_URL}/connectors/registry/auth/scaffold/${authType}`,
 
+  // Custom MCP Connectors
+  mcpConnect: `${API_URL}/api/v1/mcp/connect`,
+  mcpDiscover: `${API_URL}/api/v1/mcp/discover`,
+  mcpOauthCallback: `${API_URL}/api/v1/mcp/oauth/callback`,
+  mcpConnectors: `${API_URL}/api/v1/mcp/connectors`,
+  mcpConnectorGet: (id: string) => `${API_URL}/api/v1/mcp/connectors/${id}`,
+  mcpConnectorUpdate: (id: string) => `${API_URL}/api/v1/mcp/connectors/${id}`,
+  mcpConnectorDelete: (id: string) => `${API_URL}/api/v1/mcp/connectors/${id}`,
+  mcpConnectorTest: (id: string) => `${API_URL}/api/v1/mcp/connectors/${id}/test`,
+  mcpConnectorRefreshTools: (id: string) => `${API_URL}/api/v1/mcp/connectors/${id}/refresh-tools`,
+  mcpConnectorTools: (id: string) => `${API_URL}/api/v1/mcp/connectors/${id}/tools`,
+  mcpConnectorCallTool: (id: string, toolName: string) =>
+    `${API_URL}/api/v1/mcp/connectors/${id}/tools/${toolName}/call`,
+  mcpConnectorReconnect: (id: string) => `${API_URL}/api/v1/mcp/connectors/${id}/reconnect`,
+
   // Connector MCP Tools
   mcpConnGmailSearch: `${API_URL}/api/v1/mcp/connectors/google/gmail/search`,
   mcpConnGmailRead: `${API_URL}/api/v1/mcp/connectors/google/gmail/read`,
@@ -197,6 +213,13 @@ export const ENDPOINTS = {
   listSearchHistory: `${API_URL}/api/v1/search/history`,
   getSearchHistoryResults: (historyId: string) => `${API_URL}/api/v1/search/history/${historyId}/results`,
   generateSearchTitle: `${API_URL}/api/v1/search/title/generate`,
+  deepSearch: `${API_URL}/api/v1/search/deep`,
+
+  // Chat Memory
+  chatAsk: `${API_URL}/api/v1/chat/ask`,
+  chatNewSession: `${API_URL}/api/v1/chat/session/new`,
+  chatSessions: `${API_URL}/api/v1/chat/sessions`,
+  chatSessionMessages: (sessionId: string) => `${API_URL}/api/v1/chat/sessions/${sessionId}/messages`,
 
   // Skills (Persistent + Custom)
   listSkills: `${API_URL}/api/v1/skills`,
@@ -268,6 +291,27 @@ export const ENDPOINTS = {
   health: `${API_URL}/health`,
   ready: `${API_URL}/ready`,
   home: `${API_URL}/`,
+
+  // Website
+  websiteRequirements: `${API_URL}/api/website/requirements`,
+
+  // Legacy AI Tools (non-versioned /ai/...)
+  aiGenerateImage: `${API_URL}/ai/generate/image`,
+  aiGenerateVideo: `${API_URL}/ai/generate/video`,
+  aiGenerateText: `${API_URL}/ai/generate/text`,
+  aiGenerateTextToText: `${API_URL}/ai/generate/text-to-text`,
+  aiGeneratePrompt: `${API_URL}/ai/generate/prompt`,
+  aiGenerateCode: `${API_URL}/ai/generate/code-generate`,
+  aiGenerate3D: `${API_URL}/ai/generate/3d`,
+  aiGenerateTTS: `${API_URL}/ai/generate/tts`,
+  aiGenerateWeddingCard: `${API_URL}/ai/generate/wedding-card`,
+  aiGenerateLogo: `${API_URL}/ai/generate/logo`,
+  aiEnhanceImage: `${API_URL}/ai/enhance/image`,
+  aiGeneratePPT: `${API_URL}/ai/generate/ppt`,
+  aiGenerateWord: `${API_URL}/ai/generate/word`,
+  aiGenerateExcel: `${API_URL}/ai/generate/excel`,
+  aiGenerateMusic: `${API_URL}/ai/generate/music`,
+  aiGeneratePDF: `${API_URL}/ai/generate/pdf`,
 };
 
 export function getStoredAccessToken(): string | null {

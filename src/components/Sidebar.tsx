@@ -345,7 +345,7 @@ export default function Sidebar({
           {sidebarOpen && (
             <div className="space-y-1.5 animate-fade-in">
               <div className="flex items-center justify-between px-3 py-1 text-[11px] font-semibold text-foreground/45 uppercase tracking-wider">
-                <span>Recent</span>
+                <span>History</span>
               </div>
 
               <div className="space-y-1.5 px-1 max-h-[300px] overflow-y-auto pr-1" aria-busy={chatsLoading}>

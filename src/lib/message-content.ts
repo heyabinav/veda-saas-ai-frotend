@@ -20,10 +20,20 @@ export function parseMessageBlocks(text: string): MessageBlock[] {
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
+  const pushText = (raw: string) => {
+    const t = raw.trim();
+    if (!t) return;
+    if (looksLikeCode(t)) {
+      blocks.push({ type: "code", language: guessCodeLanguage(t), content: t });
+    } else {
+      blocks.push({ type: "text", content: raw });
+    }
+  };
+
   FENCE_RE.lastIndex = 0;
   while ((match = FENCE_RE.exec(cleaned)) !== null) {
     const before = cleaned.slice(lastIndex, match.index).trim();
-    if (before) blocks.push({ type: "text", content: before });
+    pushText(before);
 
     const lang = match[1].toLowerCase();
     const content = match[2].trim();
@@ -35,7 +45,7 @@ export function parseMessageBlocks(text: string): MessageBlock[] {
     } else if (lang === "json") {
       // skip structured log payloads
     } else {
-      blocks.push({ type: "code", language: lang || "text", content });
+      blocks.push({ type: "code", language: lang || guessCodeLanguage(content), content });
     }
 
     lastIndex = match.index + match[0].length;
@@ -46,7 +56,7 @@ export function parseMessageBlocks(text: string): MessageBlock[] {
     if (tail.startsWith("<svg") && tail.includes("</svg>")) {
       blocks.push({ type: "svg", content: tail });
     } else {
-      blocks.push({ type: "text", content: tail });
+      pushText(tail);
     }
   }
 
@@ -58,4 +68,82 @@ export function splitTextParagraphs(text: string): string[] {
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);
+}
+
+// ── Raw (unfenced) code detection ──────────────────────────────────────────
+// AI responses sometimes return code without ``` fences. If a text segment
+// looks like code, render it in the syntax-highlighted code box instead of as
+// plain prose.
+
+const CODE_LINE_RE =
+  /^(?:\s{2,}\S|<[a-zA-Z/!]|function\s|const\s|let\s|var\s|import\s|export\s|def\s|class\s|public\s|private\s|protected\s|static\s|async\s|await\s|return\s|if\s*\(|for\s*\(|while\s*\(|switch\s*\(|try\s*\{|catch\s*\(|console\.|document\.|window\.|require\(|from\s+["']|npm\s|npx\s|pip\s|git\s|curl\s|SELECT\b|INSERT\b|UPDATE\b|DELETE\b|CREATE\b|ALTER\b|DROP\b|SET\s+[\w.]+\s*=)/im;
+
+export function looksLikeCode(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > 6000) return false;
+  const lines = trimmed.split("\n");
+  if (lines.length === 1) {
+    // Single line: only treat it as code when it has strong code markers
+    const single = lines[0];
+    return CODE_LINE_RE.test(single) && /[{}\[\]()=;]/.test(single) && /\s/.test(single);
+  }
+  const hints = lines.filter((l) => CODE_LINE_RE.test(l)).length;
+  return hints >= Math.max(2, Math.ceil(lines.length * 0.35));
+}
+
+export function guessCodeLanguage(content: string): string {
+  const head = content.slice(0, 1000);
+
+  // HTML/XML: has opening AND closing tags
+  if (/<[a-zA-Z][\w-]*[^>]*>/i.test(head) && /<\/[a-zA-Z][\w-]*>/i.test(content)) {
+    return "html";
+  }
+
+  // CSS: selector blocks with property: value;
+  if (/^\s*[.#@][\w-]+\s*\{/m.test(head) || (/^\s*[\w-]+\s*\{/m.test(head) && /[a-z-]+\s*:\s*[^;{}]+;/i.test(head))) {
+    return "css";
+  }
+
+  // SQL
+  if (/^\s*(select|insert into|update|delete from|create table|alter table|drop table)\b/im.test(head)) {
+    return "sql";
+  }
+
+  // Python
+  if (/^\s*(def|class)\s+\w+|^\s*import\s+\w+|^\s*from\s+\w+\s+import/im.test(head)) {
+    return "python";
+  }
+
+  // TypeScript-only syntax markers
+  const tsOnly =
+    /:\s*(string|number|boolean|any|unknown|never|void|Record<\w|Promise<\w|Array<\w)\b|interface\s+\w+|type\s+\w+\s*=|enum\s+\w+|as\s+(const|string|number|any|unknown)\b/;
+  const hasTs = tsOnly.test(head);
+
+  // JSX/TSX: JS plus component-style tags
+  const hasJsx = /return\s*\(?\s*<[A-Za-z][\s/>]|=>\s*\(?\s*<[A-Za-z]|const\s+\w+\s*=\s*\(?\s*<[A-Za-z]|function\s+\w+\s*\([^)]*\)\s*\{\s*return\s*\(?\s*</i.test(head);
+  if (hasJsx) {
+    return hasTs ? "tsx" : "jsx";
+  }
+
+  // Shell commands
+  if (/^\s*(npm|npx|pip|git|curl|cd\s|ls\s|mkdir|rm\s|sudo|echo|docker)\b/im.test(head)) {
+    return "bash";
+  }
+
+  // C / C++ includes
+  if (/#include|using namespace std|std::|printf\s*\(/im.test(head)) {
+    return "cpp";
+  }
+
+  // Java
+  if (/\bpublic\s+(static\s+)?(void|int|String|boolean|double)\s+\w+\s*\(|System\.out\.print/im.test(head)) {
+    return "java";
+  }
+
+  // JavaScript (default for common JS markers)
+  if (/\b(function|const|let|var|=>|console\.|document\.|window\.|require\(|import\s)/im.test(head)) {
+    return hasTs ? "typescript" : "javascript";
+  }
+
+  return "text";
 }

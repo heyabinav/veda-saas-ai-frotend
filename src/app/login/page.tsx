@@ -92,6 +92,42 @@ function LoginContent() {
         document.cookie = `user_plan=${encodeURIComponent(userPlan)}; path=/; max-age=${365 * 24 * 60 * 60}`;
       }
 
+      // Persist the full user record so the UI can instantly reflect the login
+      const userId =
+        payload?.user?.id ||
+        payload?.user?.user_id ||
+        payload?.user_id ||
+        payload?.id ||
+        "";
+      const avatar =
+        payload?.user?.avatar ||
+        payload?.user?.avatar_url ||
+        payload?.user?.picture ||
+        payload?.avatar ||
+        "";
+      try {
+        const savedUser: Record<string, unknown> = {
+          id: userId,
+          name: userName,
+          email: userEmail,
+          plan: userPlan,
+          avatar,
+          provider: payload?.provider || "email",
+          raw: payload,
+        };
+        localStorage.setItem("vedaapex_user", JSON.stringify(savedUser));
+        if (userId) {
+          localStorage.setItem("vedaapex_user_id", userId);
+        }
+        if (avatar) {
+          localStorage.setItem("vedaapex-avatar", avatar);
+        }
+        window.dispatchEvent(new Event("vedaapex-user-updated"));
+        window.dispatchEvent(new Event("vedaapex-avatar-updated"));
+      } catch (e) {
+        console.warn("Could not persist user record:", e);
+      }
+
       setLoading(false);
       router.replace(destination);
     } catch (err) {
@@ -187,9 +223,9 @@ function LoginContent() {
             <Image
               src="/logo.svg"
               alt="VedaApex Logo"
-              width={56}
-              height={56}
-              className="h-14 w-14 mx-auto object-contain drop-shadow-sm transition-transform duration-300 hover:scale-105"
+              width={128}
+              height={128}
+              className="h-32 w-32 mx-auto object-contain transition-transform duration-300 hover:scale-105"
             />
             <h1 className="text-3xl font-serif font-medium text-[#191919] dark:text-[#E8E6E0] tracking-tight">
               Welcome back

@@ -5,6 +5,7 @@ import { DEFAULT_SYSTEM_PROMPT } from "@/config/default-ai-settings";
 type ChatRequestBody = {
   message?: string;
   chat_id?: string | null;
+  session_id?: string | null;
   model?: string;
   intent?: string;
   responseMode?: "structured" | "raw";
@@ -84,18 +85,45 @@ export async function POST(req: NextRequest) {
         ? `Bearer ${decodeURIComponent(req.cookies.get("auth_token")!.value)}`
         : "");
 
-    // The backend reads attached files from a multipart request ("file" field),
-    // like every other media endpoint. When files are present, send them as
-    // FormData; otherwise keep the plain JSON payload.
-    let payloadBody: BodyInit;
-    if (files && files.length > 0) {
+    // Attached files: the deployed backend's OpenAPI spec declares
+    // /api/v1/ai/generate/text as application/json only (prompt, system_prompt,
+    // tier, provider), but some backend builds accept a multipart "file" field.
+    // Strategy: try multipart first; if the backend rejects it with 422
+    // (validation error), fall back to JSON with the attachments embedded as
+    // data URLs inside the prompt so multimodal models can still analyze them.
+    const filesArray = files && files.length > 0 ? files : [];
+
+    function buildPromptWithFiles(message: string, items: NonNullable<ChatRequestBody["files"]>) {
+      const parts: string[] = [];
+      for (const f of items) {
+        const dataUrl = typeof f?.dataUrl === "string" ? f.dataUrl : "";
+        const isImage = typeof f?.type === "string" && f.type.startsWith("image/");
+        if (isImage && dataUrl.startsWith("data:") && dataUrl.length < 4_000_000) {
+          parts.push(`[Image Attachment: ${f?.name ?? "image"}]\n![${f?.name ?? "image"}](${dataUrl})`);
+        } else if (typeof f?.type === "string" && f.type === "text/plain" && dataUrl.startsWith("data:")) {
+          try {
+            const match = /^data:[^;]+;base64,(.*)$/s.exec(dataUrl);
+            const text = match ? Buffer.from(match[1], "base64").toString("utf-8").slice(0, 6000) : "";
+            if (text.trim()) parts.push(`[Text Attachment: ${f?.name ?? "file"}]\n${text}`);
+          } catch {
+            // ignore unreadable text attachments
+          }
+        } else {
+          parts.push(`[Attachment: ${f?.name ?? "file"} (${f?.type ?? "unknown type"})]`);
+        }
+      }
+      const attachments = parts.length > 0 ? `\n\n---\nAttached files from the user (analyze them if relevant):\n${parts.join("\n\n")}\n---` : "";
+      return `${message ?? ""}${attachments}`;
+    }
+
+    function buildMultipartPayload() {
       const formData = new FormData();
       formData.append("prompt", body.message ?? "");
       formData.append("system_prompt", systemPrompt);
       formData.append("tier", String(tier));
       formData.append("provider", "auto");
       let appended = 0;
-      files.forEach((f) => {
+      filesArray.forEach((f) => {
         const match = /^data:([^;]+);base64,(.*)$/s.exec(f?.dataUrl ?? "");
         if (match) {
           const blob = new Blob([Buffer.from(match[2], "base64")], {
@@ -109,25 +137,34 @@ export async function POST(req: NextRequest) {
           appended += 1;
         }
       });
-      console.log(
-        "DEBUG: Sending request to /api/v1/ai/generate/text (multipart) with",
-        appended,
-        "file(s):",
-        files.map((f) => f?.name),
-      );
-      payloadBody = formData;
-    } else {
+      return formData;
+    }
+
+    function buildJsonPayload(withFiles: boolean) {
       const payload = {
-        prompt: body.message,
+        prompt: withFiles ? buildPromptWithFiles(body.message ?? "", filesArray) : body.message,
         system_prompt: systemPrompt,
         tier,
         provider: "auto",
       };
-      console.log("DEBUG: Sending request to /api/v1/ai/generate/text with payload:", payload);
-      payloadBody = JSON.stringify(payload);
+      return JSON.stringify(payload);
     }
 
-    const response = await apiRequest("/api/v1/ai/generate/text", {
+    const payloadBody: BodyInit =
+      filesArray.length > 0 ? buildMultipartPayload() : buildJsonPayload(false);
+
+    if (filesArray.length > 0) {
+      console.log(
+        "DEBUG: Sending request to /api/v1/ai/generate/text (multipart) with",
+        filesArray.length,
+        "file(s):",
+        filesArray.map((f) => f?.name),
+      );
+    } else {
+      console.log("DEBUG: Sending request to /api/v1/ai/generate/text with payload:", payloadBody);
+    }
+
+    let response = await apiRequest("/api/v1/ai/generate/text", {
       method: "POST",
       headers: {
         ...(authToken ? { Authorization: authToken } : {}),
@@ -135,6 +172,20 @@ export async function POST(req: NextRequest) {
       body: payloadBody,
       timeoutMs: 180000,
     });
+
+    // Fallback: backend rejected the multipart body — retry with JSON where the
+    // image(s) are embedded as data URLs in the prompt.
+    if (!response.ok && response.status === 422 && filesArray.length > 0) {
+      console.warn("Multipart rejected (422), retrying as JSON with embedded data URLs");
+      response = await apiRequest("/api/v1/ai/generate/text", {
+        method: "POST",
+        headers: {
+          ...(authToken ? { Authorization: authToken } : {}),
+        },
+        body: buildJsonPayload(true),
+        timeoutMs: 180000,
+      });
+    }
 
     const data = await response.json();
 
@@ -149,6 +200,7 @@ export async function POST(req: NextRequest) {
 
     sessionId =
       getStringValue(body.chat_id) ??
+      getStringValue(body.session_id) ??
       getStringValue(body.context?.session_id) ??
       null;
     userName =

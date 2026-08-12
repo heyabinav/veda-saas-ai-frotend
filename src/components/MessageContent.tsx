@@ -9,6 +9,7 @@ import "@/lib/prism-languages";
 import {
   parseMessageBlocks,
   splitTextParagraphs,
+  guessCodeLanguage,
   type MessageBlock,
 } from "@/lib/message-content";
 
@@ -172,6 +173,48 @@ function DiagramBlock({
   );
 }
 
+function HtmlCodeBlock({
+  block,
+  onSendPrompt,
+}: {
+  block: Extract<MessageBlock, { type: "html" }>;
+  onSendPrompt?: (prompt: string) => void;
+}) {
+  const [mode, setMode] = useState<"code" | "preview">("code");
+
+  return (
+    <div className="my-2">
+      <div className="mb-1.5 flex items-center gap-1">
+        <button
+          onClick={() => setMode("code")}
+          className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+            mode === "code"
+              ? "bg-black/[0.07] text-foreground dark:bg-white/10"
+              : "text-foreground/40 hover:text-foreground/70"
+          }`}
+        >
+          Code
+        </button>
+        <button
+          onClick={() => setMode("preview")}
+          className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+            mode === "preview"
+              ? "bg-black/[0.07] text-foreground dark:bg-white/10"
+              : "text-foreground/40 hover:text-foreground/70"
+          }`}
+        >
+          Preview
+        </button>
+      </div>
+      {mode === "code" ? (
+        <CodeBlock language="html" content={block.content} />
+      ) : (
+        <DiagramBlock block={block} onSendPrompt={onSendPrompt} />
+      )}
+    </div>
+  );
+}
+
 function CodeBlock({ language, content }: { language: string; content: string }) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -187,23 +230,29 @@ function CodeBlock({ language, content }: { language: string; content: string })
   const normalized = LANG_NORMALIZE[rawLang] ?? rawLang;
   const displayName = LANG_NAMES[normalized] ?? LANG_NAMES[rawLang] ?? normalized;
 
-  const grammar = Prism.languages[normalized];
+  // If the AI used an empty/unknown language tag, try to guess one so the code
+  // still gets colorful highlighting. Fall back to clike/javascript as a last
+  // resort so the box is never flat single-color.
+  let grammar = Prism.languages[normalized];
+  if (!grammar) {
+    const guessed = guessCodeLanguage(code);
+    grammar =
+      Prism.languages[guessed] ??
+      Prism.languages.clike ??
+      Prism.languages.javascript ??
+      undefined;
+  }
   const highlighted = grammar
     ? Prism.highlight(code, grammar, normalized)
     : escapeHtml(code);
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-black/10 bg-[#0d1117] shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-3.5 py-2.5">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex shrink-0 items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
-            <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
-            <span className="h-3 w-3 rounded-full bg-[#28c840]" />
-          </div>
-          <span className="truncate text-xs font-semibold text-white/80">{displayName}</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+    <div className="code-block-theme my-3 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1117]">
+      <div className="relative flex items-center justify-center border-b border-black/[0.08] bg-[#f6f8fa] px-12 py-2.5 dark:border-white/10 dark:bg-black/20">
+        <span className="truncate text-xs font-bold uppercase tracking-widest text-gray-700 dark:text-white/80">
+          {displayName}
+        </span>
+        <div className="absolute right-2.5 flex items-center gap-1.5">
           <button
             onClick={() => {
               setEditing(!editing);
@@ -211,7 +260,7 @@ function CodeBlock({ language, content }: { language: string; content: string })
             }}
             aria-label="Edit code"
             title="Edit code"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/10 hover:text-white/80"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-black/5 hover:text-gray-700 dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white/80"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -219,9 +268,9 @@ function CodeBlock({ language, content }: { language: string; content: string })
             onClick={handleCopy}
             aria-label="Copy code"
             title="Copy code"
-            className="flex h-7 w-7 items-center justify-center rounded-md border border-white/15 text-white/60 transition-colors hover:border-white/30 hover:text-white"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-black/15 text-gray-500 transition-colors hover:border-black/30 hover:text-gray-800 dark:border-white/15 dark:text-white/60 dark:hover:border-white/30 dark:hover:text-white"
           >
-            {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
@@ -229,7 +278,7 @@ function CodeBlock({ language, content }: { language: string; content: string })
         <textarea
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className="w-full resize-y bg-transparent p-3.5 text-xs font-mono leading-relaxed text-white/85 focus:outline-none"
+          className="w-full resize-y bg-transparent p-3.5 text-xs font-mono leading-relaxed text-gray-800 focus:outline-none dark:text-white/85"
           rows={code.split("\n").length}
         />
       ) : (
@@ -253,9 +302,18 @@ export default function MessageContent({ text, onSendPrompt }: MessageContentPro
         if (block.type === "text") {
           return <TextBlock key={index} content={block.content} />;
         }
-        if (block.type === "svg" || block.type === "html") {
+        if (block.type === "svg") {
           return (
             <DiagramBlock
+              key={index}
+              block={block}
+              onSendPrompt={onSendPrompt}
+            />
+          );
+        }
+        if (block.type === "html") {
+          return (
+            <HtmlCodeBlock
               key={index}
               block={block}
               onSendPrompt={onSendPrompt}

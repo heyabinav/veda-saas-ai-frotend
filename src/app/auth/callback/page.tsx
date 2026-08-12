@@ -15,11 +15,31 @@ export default function OAuthCallbackPage() {
         console.log("OAuth callback URL:", window.location.href);
         const searchParams = new URLSearchParams(window.location.search);
         let token = searchParams.get("token");
+        let hashParams: URLSearchParams | null = null;
 
         if (!token && window.location.hash) {
           const hash = window.location.hash.replace(/^#/, "");
-          const hashParams = new URLSearchParams(hash);
+          hashParams = new URLSearchParams(hash);
           token = hashParams.get("token") || hashParams.get("access_token");
+        }
+
+        if (!token) {
+          const code = searchParams.get("code") || hashParams?.get("code");
+          if (code) {
+            try {
+              const codeRes = await fetch(`/api/proxy/auth/callback?code=${encodeURIComponent(code)}`);
+              const codeData = await codeRes.json().catch(() => null);
+              token =
+                codeData?.token ||
+                codeData?.access_token ||
+                codeData?.auth_token ||
+                codeData?.data?.token ||
+                codeData?.data?.access_token ||
+                "";
+            } catch (codeErr) {
+              console.warn("Code exchange failed:", codeErr);
+            }
+          }
         }
 
         if (!token) {
@@ -56,6 +76,14 @@ export default function OAuthCallbackPage() {
               user?.email?.split("@")?.[0] ||
               "User";
             const userEmail = user?.email || mePayload?.email || "";
+            const userId = user?.id || user?.user_id || mePayload?.user_id || "";
+            const userPlan =
+              user?.plan ||
+              user?.user_metadata?.plan ||
+              mePayload?.plan ||
+              mePayload?.user_metadata?.plan ||
+              "";
+            const avatar = user?.avatar || user?.avatar_url || user?.picture || user?.image || "";
 
             if (userName) {
               document.cookie = `user_name=${encodeURIComponent(userName)}; path=/; max-age=${365 * 24 * 60 * 60}`;
@@ -63,15 +91,31 @@ export default function OAuthCallbackPage() {
             if (userEmail) {
               document.cookie = `user_email=${encodeURIComponent(userEmail)}; path=/; max-age=${365 * 24 * 60 * 60}`;
             }
-
-            const userPlan =
-              user?.plan ||
-              user?.user_metadata?.plan ||
-              mePayload?.plan ||
-              mePayload?.user_metadata?.plan ||
-              "";
             if (userPlan) {
               document.cookie = `user_plan=${encodeURIComponent(userPlan)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+            }
+
+            try {
+              const savedUser: Record<string, unknown> = {
+                id: user?.id || user?.user_id || mePayload?.user_id || mePayload?.id || "",
+                name: userName,
+                email: userEmail,
+                plan: userPlan,
+                avatar,
+                provider: user?.provider || mePayload?.provider || "oauth",
+                raw: user,
+              };
+              localStorage.setItem("vedaapex_user", JSON.stringify(savedUser));
+              if (savedUser.id) {
+                localStorage.setItem("vedaapex_user_id", String(savedUser.id));
+              }
+              if (avatar) {
+                localStorage.setItem("vedaapex-avatar", avatar);
+              }
+              window.dispatchEvent(new Event("vedaapex-user-updated"));
+              window.dispatchEvent(new Event("vedaapex-avatar-updated"));
+            } catch (e) {
+              console.warn("Could not persist user record:", e);
             }
           }
         } catch (profileError) {

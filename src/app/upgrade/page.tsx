@@ -83,9 +83,11 @@ type PaymentRecord = {
 
 export default function UpgradePage() {
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
+  const [razorpayKeyId, setRazorpayKeyId] = useState<string>("");
   const [processing, setProcessing] = useState(false);
   const [plans, setPlans] = useState<BackendPlan[]>(fallbackPlans);
   const [plansLoading, setPlansLoading] = useState(true);
+  const [plansServerEmpty, setPlansServerEmpty] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<{ plan?: string; slug?: string; status?: string } | null>(null);
   const [promoCode, setPromoCode] = useState("");
   const [promoMsg, setPromoMsg] = useState<{ text: string; kind: "success" | "error" } | null>(null);
@@ -100,7 +102,7 @@ export default function UpgradePage() {
     document.body.appendChild(script);
   }, []);
 
-  const loadPlans = useCallback(async () => {
+  const loadPlans = useCallback(async (attempt = 0) => {
     try {
       const res = await apiRequest("/api/v1/subscriptions/plans");
       const data = await res.json();
@@ -115,9 +117,18 @@ export default function UpgradePage() {
           features: Array.isArray(p?.features) ? p.features : Array.isArray(p?.credits) ? p.credits : [],
           popular: p?.popular,
         })));
+        setPlansServerEmpty(false);
+        return;
       }
+      // Backend responded but has no plans configured -> warn instead of
+      // silently using fallbacks that the backend cannot create orders for.
+      setPlansServerEmpty(true);
     } catch (e) {
       console.warn("Plans fetch failed, using fallback:", e);
+      // Render free tier cold-start: retry a few times with backoff.
+      if (attempt < 2) {
+        setTimeout(() => { void loadPlans(attempt + 1); }, 2500 * (attempt + 1));
+      }
     } finally {
       setPlansLoading(false);
     }
@@ -147,11 +158,31 @@ export default function UpgradePage() {
     }
   }, []);
 
+  const loadPaymentsConfig = useCallback(async () => {
+    try {
+      const res = await apiRequest("/api/v1/payments/config");
+      const data = await res.json();
+      const nested = data?.data && typeof data.data === "object" ? data.data : data;
+      const keyId =
+        nested?.key_id ??
+        nested?.razorpay_key_id ??
+        nested?.keyId ??
+        nested?.razorpay_public_key ??
+        "";
+      if (typeof keyId === "string" && keyId.startsWith("rzp_")) {
+        setRazorpayKeyId(keyId);
+      }
+    } catch (e) {
+      console.warn("Failed to load payment config, falling back to env key:", e);
+    }
+  }, []);
+
   useEffect(() => {
     void loadPlans();
     void loadCurrentPlan();
     void loadHistory();
-  }, [loadPlans, loadCurrentPlan, loadHistory]);
+    void loadPaymentsConfig();
+  }, [loadPlans, loadCurrentPlan, loadHistory, loadPaymentsConfig]);
 
   const redeemPromo = async () => {
     if (!promoCode.trim()) return;
@@ -182,7 +213,8 @@ export default function UpgradePage() {
   const handlePayment = async (plan: BackendPlan) => {
     setProcessing(true);
     try {
-      if (!process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID) {
+      const keyId = razorpayKeyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+      if (!keyId) {
         alert("Razorpay Key ID is missing. Please add it to your .env.local file.");
         return;
       }
@@ -211,7 +243,7 @@ export default function UpgradePage() {
       }
 
       const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        key: keyId,
         amount: plan.amount,
         currency: "INR",
         name: "VedaApex",
@@ -254,7 +286,12 @@ export default function UpgradePage() {
       rzp.open();
     } catch (error: any) {
       console.error(error);
-      alert(error?.message || "Could not start payment. Please try again.");
+      const msg = String(error?.message ?? "");
+      if (/plan not found/i.test(msg)) {
+        alert("Plan not found on the server. Plans are not configured on the backend yet — add the plans (pro/max/ultra) to the server database first, then try again.");
+      } else {
+        alert(msg || "Could not start payment. Please try again.");
+      }
     } finally {
       setProcessing(false);
     }
@@ -273,6 +310,12 @@ export default function UpgradePage() {
           </p>
         )}
         {!currentPlan?.plan && <p className="text-center text-sm text-muted-foreground mb-12">You are on the Free Plan</p>}
+
+        {plansServerEmpty && (
+          <p className="mx-auto mb-12 max-w-2xl rounded-2xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            ⚠️ Plans are not configured on the server yet (the plans API returned an empty list). Payments may fail with &quot;Plan not found&quot; until plans are added to the backend database.
+          </p>
+        )}
 
         {/* Promo code */}
         <div className="mx-auto mb-12 flex max-w-md flex-col sm:flex-row items-center gap-2">

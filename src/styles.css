@@ -736,3 +736,177 @@ html {
     scrollbar-gutter: auto;
   }
 }
+
+/* ========================================
+   CODE BLOCK SYNTAX THEME (vivid multi-color)
+   Scoped to .code-block-theme so other UI
+   (inline code, diagrams) stays untouched.
+   Light theme by default (white box),
+   dark palette when the app is in dark mode.
+   ======================================== */
+
+.code-block-theme code[class*="language-"],
+.code-block-theme pre {
+  text-shadow: none;
+  color: #000;
+}
+
+.code-block-theme .token.punctuation {
+  color: #24292f;
+}
+
+.code-block-theme .token.comment,
+.code-block-theme .token.prolog,
+.code-block-theme .token.doctype,
+.code-block-theme .token.cdata {
+  color: #6a737d;
+  font-style: italic;
+}
+
+.code-block-theme .token.keyword,
+.code-block-theme .token.atrule,
+.code-block-theme .token.rule {
+  color: #cf222e;
+}
+
+.code-block-theme .token.boolean,
+.code-block-theme .token.number,
+.code-block-theme .token.constant {
+  color: #0550ae;
+}
+
+.code-block-theme .token.string,
+.code-block-theme .token.char,
+.code-block-theme .token.attr-value,
+.code-block-theme .token.regex {
+  color: #0a3069;
+}
+
+.code-block-theme .token.symbol,
+.code-block-theme .token.entity,
+.code-block-theme .token.url {
+  color: #953800;
+}
+
+.code-block-theme .token.operator {
+  color: #cf222e;
+}
+
+.code-block-theme .token.function {
+  color: #8250df;
+}
+
+.code-block-theme .token.class-name,
+.code-block-theme .token.maybe-class-name,
+.code-block-theme .token.namespace,
+.code-block-theme .token.parameter {
+  color: #953800;
+}
+
+.code-block-theme .token.tag,
+.code-block-theme .token.selector,
+.code-block-theme .token.inserted {
+  color: #116329;
+}
+
+.code-block-theme .token.attr-name,
+.code-block-theme .token.attribute,
+.code-block-theme .token.variable,
+.code-block-theme .token.builtin {
+  color: #953800;
+}
+
+.code-block-theme .token.property {
+  color: #0550ae;
+}
+
+.code-block-theme .token.deleted {
+  color: #cf222e;
+}
+
+.code-block-theme .token.important {
+  color: #cf222e;
+  font-weight: 700;
+}
+
+/* Dark mode: switch back to the dark box palette */
+.dark .code-block-theme code[class*="language-"] {
+  color: #e6edf3;
+}
+
+.dark .code-block-theme .token.comment,
+.dark .code-block-theme .token.prolog,
+.dark .code-block-theme .token.doctype,
+.dark .code-block-theme .token.cdata {
+  color: #7d8590;
+}
+
+.dark .code-block-theme .token.punctuation {
+  color: #8b949e;
+}
+
+.dark .code-block-theme .token.keyword,
+.dark .code-block-theme .token.atrule,
+.dark .code-block-theme .token.rule {
+  color: #ff7b72;
+}
+
+.dark .code-block-theme .token.boolean,
+.dark .code-block-theme .token.number,
+.dark .code-block-theme .token.constant {
+  color: #79c0ff;
+}
+
+.dark .code-block-theme .token.string,
+.dark .code-block-theme .token.char,
+.dark .code-block-theme .token.attr-value,
+.dark .code-block-theme .token.regex {
+  color: #a5d6ff;
+}
+
+.dark .code-block-theme .token.symbol,
+.dark .code-block-theme .token.entity,
+.dark .code-block-theme .token.url {
+  color: #f2cc60;
+}
+
+.dark .code-block-theme .token.operator {
+  color: #ff7b72;
+}
+
+.dark .code-block-theme .token.function {
+  color: #d2a8ff;
+}
+
+.dark .code-block-theme .token.class-name,
+.dark .code-block-theme .token.maybe-class-name,
+.dark .code-block-theme .token.namespace,
+.dark .code-block-theme .token.parameter {
+  color: #ffa657;
+}
+
+.dark .code-block-theme .token.tag,
+.dark .code-block-theme .token.selector,
+.dark .code-block-theme .token.inserted {
+  color: #7ee787;
+}
+
+.dark .code-block-theme .token.attr-name,
+.dark .code-block-theme .token.attribute,
+.dark .code-block-theme .token.variable,
+.dark .code-block-theme .token.builtin {
+  color: #ffa657;
+}
+
+.dark .code-block-theme .token.property {
+  color: #79c0ff;
+}
+
+.dark .code-block-theme .token.deleted {
+  color: #ff7b72;
+}
+
+.dark .code-block-theme .token.important {
+  color: #ff7b72;
+  font-weight: 700;
+}
