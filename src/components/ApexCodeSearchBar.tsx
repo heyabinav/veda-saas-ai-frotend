@@ -370,15 +370,15 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`relative w-full max-w-[720px] rounded-[26px] border border-slate-900/10 bg-white transition-all duration-300 ${
+        className={`relative w-full max-w-[720px] rounded-[26px] border border-slate-900/10 bg-[#f8fafc] transition-all duration-300 ${
           isDragging
             ? "border-blue-500/60 bg-blue-50/30 shadow-[0_0_40px_rgba(66,133,244,0.2)]"
             : isFocused
               ? "border-blue-500/50 shadow-[0_0_30px_rgba(66,133,244,0.15)]"
-              : "shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+              : "shadow-[0_4px_20px_rgba(0,0,0,0.08)]"
         }`}
       >
-        <div className="relative w-full rounded-[24.5px] bg-white p-3 md:p-4 flex flex-col justify-between min-h-[110px] md:min-h-[120px] border border-black/5">
+        <div className="relative w-full rounded-[24.5px] bg-[#f8fafc] p-3 md:p-4 flex flex-col justify-between min-h-[110px] md:min-h-[120px] border border-black/5">
           {/* Text Area Input */}
           <div className="flex-1 w-full min-w-0 mb-3">
             {/* Attached file icons */}

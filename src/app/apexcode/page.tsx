@@ -1896,8 +1896,8 @@ export default function ApexCodePage() {
             </div>
 
             {/* Scrollable chat area */}
-            <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-32 pt-3 scroll-pb-32">
-              <div className="space-y-4">
+            <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+              <div className="space-y-4 pb-3">
                 {generationHistory.map((record, index) => {
                   const isActive = record.id === activeGenerationId;
                   return (
@@ -1961,7 +1961,7 @@ export default function ApexCodePage() {
             </div>
 
             {/* Bottom: pinned search bar */}
-            <div className="relative z-10 shrink-0 border-t border-white/[0.06] bg-[#0a0a18]/80 backdrop-blur-md p-3 space-y-3">
+            <div className="relative z-10 shrink-0 border-t border-white/[0.06] bg-[#0a0a18] p-3 shadow-[0_-10px_24px_rgba(2,6,23,0.45)] space-y-3">
               {generationError ? (
                 <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.07] p-3">
                   <div className="mb-1 flex items-center gap-2">
