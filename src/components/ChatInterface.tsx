@@ -1638,12 +1638,12 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                   </h1>
                 </div>
               ) : (
-                <div ref={messagesContainerRef} onScroll={handleScroll} className="scrollable-container flex-1 w-full overflow-y-auto py-6 pb-40 min-h-0">
+                <div ref={messagesContainerRef} onScroll={handleScroll} className="scrollable-container flex-1 w-full overflow-y-auto py-6 pb-28 min-h-0">
                   <div className="max-w-[720px] mx-auto flex flex-col justify-start min-h-0 space-y-6">
                   {messages.map((m, i) => (
                     <div
                       key={i}
-                      className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"} ${m.role === "assistant" ? "relative animate-in fade-in slide-in-from-bottom-2 duration-300" : ""}`}
+                      className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"} ${m.role === "assistant" ? "relative z-20 animate-in fade-in slide-in-from-bottom-2 duration-300" : ""}`}
                     >
                       {m.role === "user" &&
                         (m.files?.length ? m.files : m.file ? [m.file] : [])
@@ -1900,7 +1900,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                 className={
                   messages.length === 0 && !input.trim() && !barDocked
                     ? "relative z-10 w-full max-w-[720px] mx-auto mt-6"
-                    : "absolute bottom-0 left-0 right-0 w-full max-w-[720px] mx-auto pb-6 z-30 pointer-events-auto bg-gradient-to-t from-[var(--background)] via-[var(--background)]/95 to-transparent pt-3 px-3 sm:px-0"
+                    : "absolute bottom-0 left-0 right-0 w-full max-w-[720px] mx-auto pb-6 z-10"
                 }
               >
                 <div className="space-y-2">

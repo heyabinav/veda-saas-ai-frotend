@@ -7,6 +7,7 @@ import { useState, Suspense } from "react";
 import { ENDPOINTS } from "@/config/api";
 import { Eye, EyeOff, Mail, Lock } from "lucide-react";
 import { SkeletonImage } from "@/components/ui/skeleton";
+import { supabase } from "@/integrations/supabase/client";
 
 function LoginContent() {
   const router = useRouter();
@@ -141,26 +142,56 @@ function LoginContent() {
     }
   }
 
-  function handleGoogle() {
+  async function handleGoogle() {
     setError(null);
     setLoading(true);
     try {
       document.cookie = "guest_session=; path=/; max-age=0";
       document.cookie = "guest_expires=; path=/; max-age=0";
-      window.location.href = ENDPOINTS.googleLogin;
+      document.cookie = "post_login_grace=1; path=/; max-age=60; SameSite=Lax";
+
+      const callbackUrl = typeof window !== "undefined"
+        ? `${window.location.origin}/auth/callback${redirectTo ? `?redirectTo=${encodeURIComponent(redirectTo)}` : ""}`
+        : "/auth/callback";
+
+      const { data, error: sbError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: callbackUrl,
+        },
+      });
+
+      if (sbError || !data?.url) {
+        window.location.href = ENDPOINTS.googleLogin;
+      }
     } catch (err) {
       setLoading(false);
       setError("Google sign-in failed. Please try again.");
     }
   }
 
-  function handleGithub() {
+  async function handleGithub() {
     setError(null);
     setLoading(true);
     try {
       document.cookie = "guest_session=; path=/; max-age=0";
       document.cookie = "guest_expires=; path=/; max-age=0";
-      window.location.href = ENDPOINTS.githubLogin;
+      document.cookie = "post_login_grace=1; path=/; max-age=60; SameSite=Lax";
+
+      const callbackUrl = typeof window !== "undefined"
+        ? `${window.location.origin}/auth/callback${redirectTo ? `?redirectTo=${encodeURIComponent(redirectTo)}` : ""}`
+        : "/auth/callback";
+
+      const { data, error: sbError } = await supabase.auth.signInWithOAuth({
+        provider: "github",
+        options: {
+          redirectTo: callbackUrl,
+        },
+      });
+
+      if (sbError || !data?.url) {
+        window.location.href = ENDPOINTS.githubLogin;
+      }
     } catch (err) {
       setLoading(false);
       setError("GitHub sign-in failed. Please try again.");

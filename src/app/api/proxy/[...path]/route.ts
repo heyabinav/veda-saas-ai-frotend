@@ -59,12 +59,21 @@ async function handleProxy(req: NextRequest, { params }: { params: Promise<{ pat
     clearTimeout(timeoutId);
 
     const responseHeaders = new Headers();
+    if (typeof response.headers.getSetCookie === "function") {
+      for (const cookie of response.headers.getSetCookie()) {
+        responseHeaders.append("set-cookie", cookie);
+      }
+    }
+
     response.headers.forEach((value, key) => {
       // The fetch() below already decompresses the body, so re-forwarding the
       // original content-encoding / content-length would corrupt the response
       // the browser receives (broken error bodies, e.g. showing "{}").
       const lower = key.toLowerCase();
       if (lower === "content-encoding" || lower === "content-length" || lower === "transfer-encoding") {
+        return;
+      }
+      if (lower === "set-cookie") {
         return;
       }
       responseHeaders.set(key, value);

@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function OAuthCallbackPage() {
   const router = useRouter();
-  const [message, setMessage] = useState("Processing...");
+  const [message, setMessage] = useState("Processing login...");
 
   function decodeJwtPayload(token: string): Record<string, unknown> | null {
     try {
@@ -25,12 +26,30 @@ export default function OAuthCallbackPage() {
     }
   }
 
+  async function waitForSupabaseSession(maxMs = 7000) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < maxMs) {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (!error && data.session?.access_token) {
+          return data.session.access_token;
+        }
+      } catch {
+        // Ignore transient session polling failures; retry until timeout.
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+
+    return null;
+  }
+
   useEffect(() => {
     let cancelled = false;
 
     async function run() {
       try {
-        console.log("OAuth callback URL:", window.location.href);
         const searchParams = new URLSearchParams(window.location.search);
         let token = searchParams.get("token");
         let hashParams: URLSearchParams | null = null;
@@ -45,7 +64,10 @@ export default function OAuthCallbackPage() {
           const code = searchParams.get("code") || hashParams?.get("code");
           if (code) {
             try {
-              const codeRes = await fetch(`/api/proxy/auth/callback?code=${encodeURIComponent(code)}`);
+              setMessage("Finishing OAuth exchange...");
+              const codeRes = await fetch(`/api/proxy/auth/callback?code=${encodeURIComponent(code)}`, {
+                credentials: "same-origin",
+              });
               const codeData = await codeRes.json().catch(() => null);
               token =
                 codeData?.token ||
@@ -61,13 +83,64 @@ export default function OAuthCallbackPage() {
         }
 
         if (!token) {
-          setMessage(
-            "No token found in callback URL. If the backend returned the token on its own domain, please configure the backend to redirect to your frontend's /auth/callback with ?token=...\nOr copy the token from the backend URL and paste it into the app."
-          );
+          try {
+            const meRes = await fetch("/api/proxy/api/v1/auth/me", {
+              cache: "no-store",
+              credentials: "same-origin",
+            });
+            if (meRes.ok) {
+              const me = await meRes.json();
+              const mePayload = me?.data && typeof me.data === "object" ? me.data : me;
+              const user = mePayload?.user && typeof mePayload.user === "object" ? mePayload.user : mePayload;
+              const userName = user?.name || user?.full_name || user?.username || user?.display_name || "";
+              const userEmail = user?.email || mePayload?.email || "";
+              const userId = user?.id || user?.user_id || mePayload?.user_id || "";
+              const userPlan =
+                user?.plan ||
+                user?.user_metadata?.plan ||
+                mePayload?.plan ||
+                mePayload?.user_metadata?.plan ||
+                "";
+              const avatar = user?.avatar || user?.avatar_url || user?.picture || user?.image || "";
+
+              const savedUser: Record<string, unknown> = {
+                id: userId,
+                name: userName,
+                email: userEmail,
+                plan: userPlan,
+                avatar,
+                provider: user?.provider || mePayload?.provider || "oauth",
+                raw: user,
+              };
+
+              localStorage.setItem("vedaapex_user", JSON.stringify(savedUser));
+              if (savedUser.id) localStorage.setItem("vedaapex_user_id", String(savedUser.id));
+              if (avatar) localStorage.setItem("vedaapex-avatar", avatar);
+              if (userEmail) document.cookie = `user_email=${encodeURIComponent(userEmail)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+              if (userName) document.cookie = `user_name=${encodeURIComponent(userName)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+              if (userPlan) document.cookie = `user_plan=${encodeURIComponent(userPlan)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+
+              window.dispatchEvent(new Event("vedaapex-user-updated"));
+              window.dispatchEvent(new Event("vedaapex-avatar-updated"));
+
+              if (cancelled) return;
+              setMessage("Login successful. Redirecting to dashboard...");
+              setTimeout(() => router.replace("/dashboard"), 400);
+              return;
+            }
+          } catch (backendSessionErr) {
+            console.warn("Backend session probe failed:", backendSessionErr);
+          }
+
+          const supabaseToken = await waitForSupabaseSession();
+          if (supabaseToken) token = supabaseToken;
+        }
+
+        if (!token) {
+          setMessage("The login callback completed, but no session was detected yet. Please wait a moment and try refreshing the page.");
           return;
         }
 
-        console.log("Found callback token", token);
         try {
           localStorage.setItem("token", token);
           localStorage.setItem("accessToken", token);
@@ -75,12 +148,10 @@ export default function OAuthCallbackPage() {
           console.warn("localStorage error", e);
         }
 
-        document.cookie = `auth_token=${encodeURIComponent(token)}; path=/; max-age=${365 * 24 * 60 * 60}`;
+        document.cookie = `auth_token=${encodeURIComponent(token)}; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`;
         document.cookie = "guest_session=; path=/; max-age=0";
+        document.cookie = "post_login_grace=; path=/; max-age=0";
 
-        // Hydrate the user profile from the backend, then merge in the JWT
-        // claims as a fallback so the user + email are ALWAYS saved even if
-        // /auth/me is slow, down, or the backend omits the profile.
         let userName = "";
         let userEmail = "";
         let userId = "";
@@ -167,7 +238,7 @@ export default function OAuthCallbackPage() {
         setTimeout(() => router.replace("/dashboard"), 400);
       } catch (err) {
         if (cancelled) return;
-        setMessage("Error processing callback. Open console for details.");
+        setMessage("There was a problem completing your login. Please try again.");
         console.error(err);
       }
     }
@@ -183,12 +254,6 @@ export default function OAuthCallbackPage() {
     <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#151613] p-6">
       <div className="max-w-xl text-center">
         <h1 className="text-xl font-medium text-[#191919] dark:text-[#E8E6E0] mb-4">{message}</h1>
-        <p className="text-sm text-[#6D6C67] dark:text-[#9A9890]">
-          If you see a token in the URL but automatic saving didn&apos;t happen, copy it and run the following in the console:
-        </p>
-        <pre className="mt-3 p-3 rounded bg-[#F5F4F0] dark:bg-[#1E201B] text-sm text-[#191919] dark:text-[#E8E6E0]">
-          {"localStorage.setItem('token', 'PASTE_TOKEN_HERE');window.location.replace('/dashboard');"}
-        </pre>
       </div>
     </div>
   );

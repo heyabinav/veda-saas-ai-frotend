@@ -41,15 +41,6 @@ export const ENDPOINTS = {
   generateMusic: `${API_URL}/api/v1/ai/generate/music`,
   generatePDF: `${API_URL}/api/v1/ai/generate/pdf`,
 
-  // Commands (/api/v1/commands/...)
-  listCommands: `${API_URL}/api/v1/commands`,
-  validateCommand: `${API_URL}/api/v1/commands/validate`,
-  executeCommand: `${API_URL}/api/v1/commands/execute`,
-
-  // Presentations (/api/v1/presentations/...)
-  generatePresentation: `${API_URL}/api/v1/presentations/generate`,
-  getPresentationDetails: (presentationId: string) => `${API_URL}/api/v1/presentations/${presentationId}`,
-
   // Admin (/api/v1/admin/...)
   getAllUsers: `${API_URL}/api/v1/admin/users`,
   addCredits: `${API_URL}/api/v1/admin/credits/add`,

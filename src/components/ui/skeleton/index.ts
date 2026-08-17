@@ -7,5 +7,19 @@ export { default as SkeletonImage } from "./SkeletonImage";
 export { default as SkeletonButton } from "./SkeletonButton";
 export { default as SkeletonCard } from "./SkeletonCard";
 export { default as SkeletonList } from "./SkeletonList";
-export * from "./PageSkeletons";
 
+export {
+  SidebarSkeleton,
+  NavbarSkeleton,
+  ChatPageSkeleton,
+  GeneratorPageSkeleton,
+  SettingsPageSkeleton,
+  WalletPageSkeleton,
+  SkillsPageSkeleton,
+  ConnectorsPageSkeleton,
+  BlogPageSkeleton,
+  AuthPageSkeleton,
+  FilesPageSkeleton,
+  UpgradePageSkeleton,
+  DeveloperPageSkeleton,
+} from "./PageSkeletons";
