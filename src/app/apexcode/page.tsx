@@ -1896,7 +1896,7 @@ export default function ApexCodePage() {
             </div>
 
             {/* Scrollable chat area */}
-            <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-3 pt-3">
+            <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-32 pt-3 scroll-pb-32">
               <div className="space-y-4">
                 {generationHistory.map((record, index) => {
                   const isActive = record.id === activeGenerationId;
