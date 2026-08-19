@@ -4,6 +4,21 @@
 @source "../src";
 @import "tw-animate-css";
 
+.composer-placeholder-anim {
+  animation: composer-placeholder-fade 0.7s ease-out;
+}
+
+@keyframes composer-placeholder-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -487,6 +502,25 @@ html {
 
 .caret-blink {
   animation: caret-blink 1s step-end infinite;
+}
+
+/* AI thinking indicator — animated step icons */
+@keyframes thinking-text-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.thinking-text-fade {
+  animation: thinking-text-fade 0.35s ease-out;
+}
+
+@keyframes vedaapex-logo-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-5px) scale(1.05); }
+}
+
+.vedaapex-logo-bounce {
+  animation: vedaapex-logo-bounce 1.2s ease-in-out infinite;
 }
 
 /* ApexCode — Claude/AI Studio Playground redesign */

@@ -49,10 +49,12 @@ import {
   Mail,
   Instagram,
   Twitter,
+  RefreshCw,
   } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import MessageContent from "@/components/MessageContent";
 import RequirementWizard from "@/components/RequirementWizard";
+import ThinkingIndicator from "@/components/ThinkingIndicator";
 import { getClientAiSettings } from "@/lib/ai-settings";
 import { useDropzone } from "react-dropzone";
 import type { Chat, Folder, Message } from "@/types";
@@ -79,6 +81,12 @@ import {
   saveConnections,
   type Connector,
 } from "@/config/connectors";
+import {
+  checkConnectorStatus,
+  clearPendingConnector,
+  disconnectConnector,
+  getPendingConnector,
+} from "@/lib/connector-api";
 
 const HEADER_MODELS = [
   { name: "VedaApex", price: "free" },
@@ -100,6 +108,29 @@ const COMPOSER_MODELS = [
   { name: "Apex 2.2 (Low)", price: "200" },
   { name: "Apex 2.2 (High)", price: "500" },
   { name: "Apex 3.0 Ultra (Deep Coding Reasoning)", price: "1000" }
+];
+
+const COMPOSER_PLACEHOLDERS = [
+  "Ask anything...",
+  "Build a website...",
+  "Write code for me...",
+  "Generate an image...",
+  "Create a video...",
+  "Make a PPT presentation...",
+  "Generate a document...",
+  "Search the web...",
+  "Generate a logo...",
+  "Remove background from photo...",
+  "Create an ad copy...",
+  "Generate a 3D model...",
+  "Write a blog post...",
+  "Create a wedding card...",
+  "Design a landing page...",
+  "Enhance my image...",
+  "Make an Excel sheet...",
+  "Generate music...",
+  "Explain this code...",
+  "Kuch bhi pucho, main yahan hoon...",
 ];
 
 const canAccess = (plan: string | undefined, price: string) => {
@@ -163,6 +194,28 @@ function sanitizeChatsForStorage(chats: Chat[]): Chat[] {
   }));
 }
 
+/**
+ * Heuristics for a response that was cut off mid-generation (backend max
+ * output reached): an opened code fence that never closes, a final line that
+ * clearly ends mid-code, or unmatched brackets/quotes in the tail.
+ */
+function looksTruncated(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  const fenceCount = (t.match(/```/g) || []).length;
+  if (fenceCount % 2 === 1) return true;
+  const lastLine = t.split("\n").pop()?.trim() ?? "";
+  if (lastLine === "```") return true;
+  if (/[{}(,=]$/.test(lastLine)) return true;
+  const tail = t.slice(-400);
+  const opens = (tail.match(/[({[]/g) || []).length;
+  const closes = (tail.match(/[)}\]]/g) || []).length;
+  if (opens > closes) return true;
+  const quotes = (tail.match(/["'`]/g) || []).length;
+  if (quotes % 2 === 1) return true;
+  return false;
+}
+
 export default function ChatInterface({ initialChatId }: { initialChatId?: string }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -180,7 +233,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const [mounted, setMounted] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [barDocked, setBarDocked] = useState(false);
   const [thinkingMessage, setThinkingMessage] = useState("Thinking...");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -198,6 +250,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [listening, setListening] = useState(false);
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
   const [promoModalOpen, setPromoModalOpen] = useState(false);
   const userId = user?.id ?? null;
   const chatsRef = useRef<Chat[]>([]);
@@ -240,12 +293,55 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     } catch {
       // ignore corrupt storage
     }
+    void verifyPendingConnection();
   }, []);
+
+  const verifyPendingConnection = async () => {
+    const pendingId = getPendingConnector();
+    if (!pendingId) return;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 180000) {
+      if (getPendingConnector() !== pendingId) return;
+      const ok = await checkConnectorStatus(pendingId);
+      if (ok) {
+        const date = new Date().toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+        const next = { ...loadConnections(), [pendingId]: date };
+        setConnectorConnections(next);
+        saveConnections(next);
+        setConnectorEnabled((prev) => ({ ...prev, [pendingId]: true }));
+        try {
+          localStorage.setItem(
+            "vedaapex-connector-enabled",
+            JSON.stringify({ ...connectorEnabled, [pendingId]: true })
+          );
+        } catch {
+          // ignore storage errors
+        }
+        setConnectorFailed((prev) => prev.filter((id) => id !== pendingId));
+        clearPendingConnector();
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    clearPendingConnector();
+    setConnectorFailed((prev) => (prev.includes(pendingId) ? prev : [...prev, pendingId]));
+  };
 
   useEffect(() => {
     const nextModel = getClientAiSettings(user?.user_metadata?.plan).defaultModel;
     setModel((current) => (current === COMPOSER_MODELS[0].name ? nextModel : current));
   }, [user]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPlaceholderIdx((i) => (i + 1) % COMPOSER_PLACEHOLDERS.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleConnectorEnabled = (id: string) => {
     setConnectorEnabled((prev) => {
@@ -572,8 +668,9 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     setOauthFor(null);
   };
 
-  const handleConnectorDisconnect = (c: Connector) => {
+  const handleConnectorDisconnect = async (c: Connector) => {
     if (!confirm(`Disconnect ${c.name}?`)) return;
+    await disconnectConnector(c.id);
     const next = { ...connectorConnections };
     delete next[c.id];
     setConnectorConnections(next);
@@ -846,7 +943,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
   function newChat() {
     setActiveChatId(null);
     setInput("");
-    setBarDocked(false);
     window.history.pushState(null, "", "/");
   }
 
@@ -872,7 +968,6 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     if (activeChatId === id) {
       setActiveChatId(null);
       setMessages([]);
-      setBarDocked(false);
     }
     await deleteChatFromSupabase(id, userId).catch(console.error);
   }
@@ -1003,7 +1098,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     }
     await saveChatToSupabase(chatSnapshot, userId).catch(console.error);
 
-    const assistantMsg = await fetchAssistantReply(text, sentAt, filesData);
+    const assistantMsg = await generateCompleteReply(text, sentAt, filesData);
 
     setIsThinking(false); // Stop thinking animation
     const nextMessages = [...currentMessages, assistantMsg];
@@ -1151,6 +1246,26 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       durationMs: Date.now() - sentAt,
     };
   }
+
+  const generateCompleteReply = async (
+    text: string,
+    sentAt: number,
+    files?: { name: string; type: string; dataUrl: string }[]
+  ): Promise<Message> => {
+    const first = await fetchAssistantReply(text, sentAt, files);
+    let finalText = first.text;
+    let guard = 0;
+    while (guard < 4 && looksTruncated(finalText)) {
+      const tail = finalText.slice(-900);
+      const continuation = await fetchAssistantReply(
+        `The previous response was cut off before it finished. Continue generating the code/answer from exactly where it stopped. Do NOT repeat anything already written — start directly from here:\n\n${tail}`,
+        Date.now()
+      );
+      finalText = `${finalText}\n\n${continuation.text}`;
+      guard += 1;
+    }
+    return { ...first, text: finalText, timestamp: first.timestamp };
+  };
 
   const persistEditedMessages = (nextMessages: Message[]) => {
     setChats((prev) => {
@@ -1313,7 +1428,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
       const files = old.files ?? (old.file ? [old.file] : undefined);
       setIsThinking(true);
       const sentAt = old.timestamp ?? Date.now();
-      const assistantMsg = await fetchAssistantReply(newText, sentAt, files);
+      const assistantMsg = await generateCompleteReply(newText, sentAt, files);
       setIsThinking(false);
       const withReply = [...finalMessages, assistantMsg];
       setMessages(withReply);
@@ -1330,6 +1445,25 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
     if (hour < 18) return "Good afternoon";
     return "Good evening";
   }, [mounted]);
+
+  const continueGeneration = async (i: number) => {
+    const m = messages[i];
+    if (!m || m.role !== "assistant" || isThinking) return;
+    setIsThinking(true);
+    setTimeout(scrollToBottom, 0);
+    const continuation = await generateCompleteReply(
+      `The previous response was cut off before it was finished. Continue generating the code/answer from exactly where it stopped. Do NOT repeat anything already written — start directly from here:\n\n${m.text.slice(-900)}`,
+      Date.now()
+    );
+    setIsThinking(false);
+    const updated = messages.map((msg, idx) =>
+      idx === i ? { ...msg, text: `${msg.text}\n\n${continuation.text}` } : msg
+    );
+    setMessages(updated);
+    persistEditedMessages(updated);
+    setShowDisclaimer(true);
+    setTimeout(scrollToBottom, 0);
+  };
 
   const displayName = useMemo(() => {
     if (user) return user.user_metadata?.full_name || user.user_metadata?.username || user.email?.split("@")[0] || "User";
@@ -1638,12 +1772,12 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                   </h1>
                 </div>
               ) : (
-                <div ref={messagesContainerRef} onScroll={handleScroll} className="scrollable-container flex-1 w-full overflow-y-auto py-6 pb-28 min-h-0">
+                <div ref={messagesContainerRef} onScroll={handleScroll} className="scrollable-container flex-1 w-full overflow-y-auto py-6 pb-40 min-h-0">
                   <div className="max-w-[720px] mx-auto flex flex-col justify-start min-h-0 space-y-6">
                   {messages.map((m, i) => (
                     <div
                       key={i}
-                      className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"} ${m.role === "assistant" ? "relative z-20 animate-in fade-in slide-in-from-bottom-2 duration-300" : ""}`}
+                      className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"} ${m.role === "assistant" ? "relative animate-in fade-in slide-in-from-bottom-2 duration-300" : ""}`}
                     >
                       {m.role === "user" &&
                         (m.files?.length ? m.files : m.file ? [m.file] : [])
@@ -1729,10 +1863,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                             onSendPrompt={(prompt) => {
                               setInput(prompt);
                               setTimeout(() => {
-                                const textarea = document.querySelector<HTMLTextAreaElement>(
-                                  'textarea[placeholder*="Ask"]',
-                                );
-                                textarea?.focus();
+                                document.getElementById("chat-composer-input")?.focus();
                               }, 0);
                             }}
                           />
@@ -1740,6 +1871,18 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                           m.text
                         )}
                       </div>
+                      {m.role === "assistant" &&
+                        i === messages.length - 1 &&
+                        !isThinking &&
+                        looksTruncated(m.text) && (
+                          <button
+                            onClick={() => continueGeneration(i)}
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-black/10 px-3 py-1.5 text-xs font-medium text-foreground/60 transition-colors hover:bg-black/5 hover:text-foreground dark:border-white/10 dark:hover:bg-white/10"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            Continue generating
+                          </button>
+                        )}
                       <div
                         className={`relative mt-1 flex items-center gap-0.5 ${
                           m.role === "user" ? "justify-end" : ""
@@ -1877,9 +2020,9 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                           loop
                           muted
                           playsInline
-                          className="h-14 w-14 shrink-0 object-contain"
+                          className="vedaapex-logo-bounce h-14 w-14 shrink-0 object-contain"
                         />
-                        <span className="text-[15px] text-foreground/50">{thinkingMessage}</span>
+                        <ThinkingIndicator />
                       </div>
                     </div>
                   )}
@@ -1895,13 +2038,13 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                 </div>
               )}
 
-              {/* Composer - bottom on chat, inline near center on empty */}
+              {/* Composer - top when no messages, docks to bottom like ChatGPT/Claude after first message */}
               <div
-                className={
-                  messages.length === 0 && !input.trim() && !barDocked
-                    ? "relative z-10 w-full max-w-[720px] mx-auto mt-6"
-                    : "absolute bottom-0 left-0 right-0 w-full max-w-[720px] mx-auto pb-6 z-10"
-                }
+                className={`w-full max-w-[720px] mx-auto z-30 pointer-events-auto transition-all duration-500 ${
+                  messages.length === 0
+                    ? "relative mt-8 px-4 md:px-0 pb-4 animate-in fade-in slide-in-from-top-2 duration-300"
+                    : "absolute bottom-0 left-0 right-0 pb-6"
+                }`}
               >
                 <div className="space-y-2">
                   {activeTool && (
@@ -1919,7 +2062,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                     } ${
                       isDropActive
                         ? "border-blue-400 bg-blue-50/50"
-                        : "border-black/[0.06] bg-white shadow-sm"
+                        : "border-black/10 bg-white shadow-sm"
                     }`}
                   >
                   <input {...getDropInputProps()} />
@@ -1991,28 +2134,37 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                       </span>
                     </div>
                   )}
-                  <textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      autoResize();
-                      if (e.target.value.trim()) setBarDocked(true);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        send();
-                      }
-                    }}
-                    onFocus={() => {
-                      setShowDisclaimer(false);
-                      scrollToBottom();
-                    }}
-                    rows={1}
-                    className="w-full bg-transparent text-[15px] text-foreground placeholder:text-foreground/25 focus:outline-none resize-none overflow-hidden"
-                    placeholder={activeTool ? `Ask in ${activeTool}...` : "Ask anything"}
-                  />
+                  <div className="relative">
+                    {!input && (
+                      <span
+                        key={placeholderIdx}
+                        className="composer-placeholder-anim pointer-events-none absolute left-0 top-0 max-w-full truncate text-[15px] text-foreground/50"
+                      >
+                        {activeTool ? `Ask in ${activeTool}...` : COMPOSER_PLACEHOLDERS[placeholderIdx]}
+                      </span>
+                    )}
+                    <textarea
+                      id="chat-composer-input"
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                        autoResize();
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          send();
+                        }
+                      }}
+                      onFocus={() => {
+                        setShowDisclaimer(false);
+                        scrollToBottom();
+                      }}
+                      rows={1}
+                      className="w-full bg-transparent text-[15px] text-foreground focus:outline-none resize-none overflow-hidden"
+                    />
+                  </div>
                   <div className="mt-3 flex items-center justify-between">
                     <div className="relative flex items-center gap-1">
                       <input
@@ -2318,13 +2470,11 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
                           <AudioLines className="h-[18px] w-[18px]" />
                         </button>
                       )}
-                    </div>
-                  </div>
-                </div>
-                </div>
+</div>
+</div>
               </div>
-              {messages.length === 0 && !input.trim() && !barDocked && (
-                <div className="mt-6 w-full max-w-[720px] z-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
+              {messages.length === 0 && !input.trim() && (
+                <div className="mt-4 w-full max-w-[720px] px-4 md:px-0 animate-in fade-in duration-300">
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     <Link
                       href="/image-generator"
@@ -2361,6 +2511,8 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
               )}
             </div>
             </div>
+            </div>
+            </div>
           )}
         </main>
         <RequirementWizard
@@ -2372,10 +2524,7 @@ export default function ChatInterface({ initialChatId }: { initialChatId?: strin
               setInput(brief);
               setTimeout(() => {
                 scrollToBottom();
-                const textarea = document.querySelector<HTMLTextAreaElement>(
-                  'textarea[placeholder*="Ask"]',
-                );
-                textarea?.focus();
+                document.getElementById("chat-composer-input")?.focus();
               }, 0);
             }
           }}

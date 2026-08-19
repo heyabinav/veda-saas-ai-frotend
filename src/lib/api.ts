@@ -9,6 +9,37 @@ type ApiRequestOptions = RequestInit & {
   timeoutMs?: number;
 };
 
+/**
+ * Error hints that usually mean a service's API key / credentials are not
+ * configured on the backend, instead of a real server fault. The backend
+ * surfaces these as generic 500s ("Server crash", "Internal Server Error")
+ * which would otherwise confuse users.
+ */
+const MISSING_API_KEY_HINTS = [
+  /api[_ -]?key/i,
+  /key not configured/i,
+  /not configured/i,
+  /missing (api )?key/i,
+  /missing credential/i,
+  /credentials? (not )?(found|provided|missing|required|configured)/i,
+  /(openai|gemini|google|anthropic|claude|stability|fal|replicate|elevenlabs|unsplash|pexels) key/i,
+  /server crash/i,
+  /internal server error/i,
+  /backend (error|failure)/i,
+];
+
+export const MISSING_API_KEY_MESSAGE =
+  "This service's API key is not configured on the server yet. Please try again later or contact support.";
+
+export function isMissingApiKeyError(message: string | undefined | null): boolean {
+  if (!message) return false;
+  return MISSING_API_KEY_HINTS.some((re) => re.test(message));
+}
+
+export function toFriendlyError(message: string | undefined | null): string {
+  return isMissingApiKeyError(message) ? MISSING_API_KEY_MESSAGE : message || "Request failed";
+}
+
 function isTextResponse(contentType: string) {
   const normalized = contentType.toLowerCase();
   return (
@@ -233,8 +264,16 @@ export async function apiRequest(endpoint: string, options: ApiRequestOptions = 
             ? "Authentication required. Please log in."
             : `Request failed with status ${response.status}.`);
 
+      // Missing API key / credentials on the backend surface as generic 500s
+      // ("Server crash", "Internal Server Error"). Translate those into a
+      // clear, actionable message instead of confusing the user.
+      const friendlyError =
+        response.status >= 500 && isMissingApiKeyError(errorMessage)
+          ? MISSING_API_KEY_MESSAGE
+          : errorMessage;
+
       // Attach the HTTP status so callers can detect auth failures (401) and redirect to login
-      const error = new Error(errorMessage) as Error & { status?: number };
+      const error = new Error(friendlyError) as Error & { status?: number };
       error.status = response.status;
       throw error;
     }

@@ -236,10 +236,27 @@ export default function UpgradePage() {
       });
       const orderData = await orderRes.json();
       const order = orderData?.data && typeof orderData.data === "object" ? orderData.data : orderData;
-      const orderId = order?.order_id || order?.id;
+      const nestedOrder =
+        order && typeof order === "object"
+          ? (order.order && typeof order.order === "object" ? order.order : null)
+          : null;
+      const orderId =
+        order?.order_id ||
+        order?.id ||
+        order?.orderId ||
+        order?.razorpay_order_id ||
+        order?.razorpayOrderId ||
+        order?.payment_order_id ||
+        nestedOrder?.order_id ||
+        nestedOrder?.id;
 
       if (!orderId) {
-        throw new Error(order?.message || order?.error || "Failed to create payment order");
+        console.error("[Upgrade] Order response did not include an order id:", orderData);
+        const msg =
+          order?.message || order?.error || order?.error_code || order?.detail ||
+          orderData?.message || orderData?.error || orderData?.error_code || orderData?.detail ||
+          "Failed to create payment order";
+        throw new Error(typeof msg === "string" && msg.trim() ? msg : "Failed to create payment order");
       }
 
       const options = {

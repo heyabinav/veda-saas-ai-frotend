@@ -13,6 +13,12 @@ import {
   saveConnections,
   type Connector,
 } from "@/config/connectors";
+import {
+  checkConnectorStatus,
+  clearPendingConnector,
+  disconnectConnector,
+  getPendingConnector,
+} from "@/lib/connector-api";
 
 export default function ConnectorsPage() {
   const router = useRouter();
@@ -25,7 +31,36 @@ export default function ConnectorsPage() {
 
   useEffect(() => {
     setConnected(loadConnections());
+    verifyPendingConnection();
   }, []);
+
+  const verifyPendingConnection = async () => {
+    const pendingId = getPendingConnector();
+    if (!pendingId) return;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 180000) {
+      if (getPendingConnector() !== pendingId) return;
+      const ok = await checkConnectorStatus(pendingId);
+      if (ok) {
+        const next = {
+          ...loadConnections(),
+          [pendingId]: new Date().toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+        };
+        setConnected(next);
+        saveConnections(next);
+        setFailed((prev) => prev.filter((id) => id !== pendingId));
+        clearPendingConnector();
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    clearPendingConnector();
+    setFailed((prev) => (prev.includes(pendingId) ? prev : [...prev, pendingId]));
+  };
 
   const persist = (next: Record<string, string>) => {
     setConnected(next);
@@ -50,8 +85,9 @@ export default function ConnectorsPage() {
     setOauthFor(null);
   };
 
-  const handleDisconnect = (connector: Connector) => {
+  const handleDisconnect = async (connector: Connector) => {
     if (!confirm(`Disconnect ${connector.name}?`)) return;
+    await disconnectConnector(connector.id);
     const next = { ...connected };
     delete next[connector.id];
     persist(next);

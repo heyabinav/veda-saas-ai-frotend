@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, Pencil } from "lucide-react";
+import { Check, Copy, Maximize2, Pencil } from "lucide-react";
 import { Prism } from "@/lib/prism";
 import "@/lib/prism-languages";
 import {
@@ -158,7 +158,7 @@ function DiagramBlock({
     return (
       <div
         ref={containerRef}
-        className="diagram-host my-3 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3"
+        className="diagram-host my-3 overflow-x-auto"
         dangerouslySetInnerHTML={{ __html: block.content }}
       />
     );
@@ -167,7 +167,7 @@ function DiagramBlock({
   return (
     <div
       ref={containerRef}
-      className="diagram-host diagram-html my-3 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3"
+      className="diagram-host diagram-html my-3 overflow-x-auto"
       dangerouslySetInnerHTML={{ __html: block.content }}
     />
   );
@@ -181,6 +181,23 @@ function HtmlCodeBlock({
   onSendPrompt?: (prompt: string) => void;
 }) {
   const [mode, setMode] = useState<"code" | "preview">("code");
+
+  const openFullScreen = () => {
+    try {
+      localStorage.setItem("vedaapex_preview_html", block.content);
+    } catch {
+      // storage unavailable — query param still works
+    }
+    let src = "";
+    try {
+      src = btoa(unescape(encodeURIComponent(block.content)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_");
+    } catch {
+      src = "";
+    }
+    window.open(`/preview?src=${encodeURIComponent(src)}`, "_blank");
+  };
 
   return (
     <div className="my-2">
@@ -196,21 +213,18 @@ function HtmlCodeBlock({
           Code
         </button>
         <button
-          onClick={() => setMode("preview")}
-          className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+          onClick={openFullScreen}
+          className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
             mode === "preview"
               ? "bg-black/[0.07] text-foreground dark:bg-white/10"
               : "text-foreground/40 hover:text-foreground/70"
           }`}
         >
+          <Maximize2 className="h-3 w-3" />
           Preview
         </button>
       </div>
-      {mode === "code" ? (
-        <CodeBlock language="html" content={block.content} />
-      ) : (
-        <DiagramBlock block={block} onSendPrompt={onSendPrompt} />
-      )}
+      {mode === "code" && <CodeBlock language="html" content={block.content} />}
     </div>
   );
 }

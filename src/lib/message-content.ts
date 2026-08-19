@@ -6,15 +6,42 @@ export type MessageBlock =
 
 const FENCE_RE = /```(\w*)\n([\s\S]*?)```/g;
 
+/**
+ * Remove the structured log footer that /api/chat appends to assistant
+ * responses. Only strips when the ```json block is the VERY LAST thing in the
+ * response AND looks like the log payload — a ```json block in the middle of
+ * the answer (e.g. the user asked for JSON config) must never be cut off,
+ * otherwise trailing code/HTML after it silently disappears.
+ */
 export function stripStructuredFooter(text: string): string {
-  const idx = text.lastIndexOf("```json");
-  if (idx === -1) return text;
-  return text.slice(0, idx).trimEnd();
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line.startsWith("```")) {
+      if (!line.startsWith("```json")) return text;
+      const footer = lines.slice(i).join("\n");
+      if (/"(assistant_response|user_message|assistantResponse|userMessage)"\s*:/.test(footer)) {
+        return lines.slice(0, i).join("\n").trimEnd();
+      }
+      return text;
+    }
+    if (line !== "") return text;
+  }
+  return text;
 }
 
 export function parseMessageBlocks(text: string): MessageBlock[] {
-  const cleaned = stripStructuredFooter(text).trim();
+  const cleaned = stripStructuredFooter(text)
+    .replace(/^\s*~~~(\w*)\s*$/gm, "```$1")
+    .replace(/^\s*~~~\s*$/gm, "```")
+    .trim();
   if (!cleaned) return [];
+
+  // Truncated responses (backend max output reached) often end with an
+  // opened code fence that never closes — which would otherwise swallow the
+  // whole tail into prose. Close it synthetically so the code still renders.
+  const fenceCount = (cleaned.match(/```/g) || []).length;
+  const normalized = fenceCount % 2 === 1 ? `${cleaned}\n\`\`\`` : cleaned;
 
   const blocks: MessageBlock[] = [];
   let lastIndex = 0;
@@ -31,8 +58,8 @@ export function parseMessageBlocks(text: string): MessageBlock[] {
   };
 
   FENCE_RE.lastIndex = 0;
-  while ((match = FENCE_RE.exec(cleaned)) !== null) {
-    const before = cleaned.slice(lastIndex, match.index).trim();
+  while ((match = FENCE_RE.exec(normalized)) !== null) {
+    const before = normalized.slice(lastIndex, match.index).trim();
     pushText(before);
 
     const lang = match[1].toLowerCase();
@@ -51,7 +78,7 @@ export function parseMessageBlocks(text: string): MessageBlock[] {
     lastIndex = match.index + match[0].length;
   }
 
-  const tail = cleaned.slice(lastIndex).trim();
+  const tail = normalized.slice(lastIndex).trim();
   if (tail) {
     if (tail.startsWith("<svg") && tail.includes("</svg>")) {
       blocks.push({ type: "svg", content: tail });
@@ -60,7 +87,7 @@ export function parseMessageBlocks(text: string): MessageBlock[] {
     }
   }
 
-  return blocks.length > 0 ? blocks : [{ type: "text", content: cleaned }];
+  return blocks.length > 0 ? blocks : [{ type: "text", content: normalized }];
 }
 
 export function splitTextParagraphs(text: string): string[] {

@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { X, ShieldCheck, Loader2, Check } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { X, ShieldCheck, Loader2, Check, AlertTriangle } from "lucide-react";
 import ConnectorLogo from "@/components/ConnectorLogo";
 import type { Connector } from "@/config/connectors";
+import {
+  checkConnectorStatus,
+  clearPendingConnector,
+  setPendingConnector,
+  startConnectorLogin,
+} from "@/lib/connector-api";
 
 type OAuthModalProps = {
   connector: Connector | null;
@@ -12,26 +18,105 @@ type OAuthModalProps = {
   onFailed: (connector: Connector) => void;
 };
 
+const POLL_MS = 3000;
+const MAX_WAIT_MS = 180000;
+const POPUP_CLOSED_GRACE_TICKS = 5;
+
 export default function OAuthModal({ connector, onClose, onSuccess, onFailed }: OAuthModalProps) {
   const [step, setStep] = useState<"confirm" | "authorizing" | "done">("confirm");
+  const [statusText, setStatusText] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const popupRef = useRef<Window | null>(null);
+  const connectorRef = useRef<Connector | null>(null);
 
   useEffect(() => {
     if (connector) {
       setStep("confirm");
+      setStatusText("");
+      setErrorMsg("");
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
     }
   }, [connector]);
 
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      popupRef.current?.close();
+      clearPendingConnector();
+    };
+  }, []);
+
   if (!connector) return null;
 
-  const handleAuthorize = () => {
+  const stopPolling = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+    clearPendingConnector();
+  };
+
+  const handleAuthorize = async () => {
+    if (!connector) return;
+    connectorRef.current = connector;
     setStep("authorizing");
-    setTimeout(() => {
-      setStep("done");
-      setTimeout(() => onSuccess(connector), 700);
-    }, 1600);
+    setErrorMsg("");
+    setStatusText(`Contacting ${connector.name}...`);
+
+    const login = await startConnectorLogin(connector.id);
+    if (!login.ok) {
+      setStep("confirm");
+      setErrorMsg(login.error);
+      return;
+    }
+
+    setStatusText(`Waiting for ${connector.name} authorization...`);
+    setPendingConnector(connector.id);
+
+    const popup = window.open(
+      login.authUrl,
+      "vedaapex-connector-oauth",
+      "width=600,height=680,left=200,top=120"
+    );
+    popupRef.current = popup;
+
+    const startedAt = Date.now();
+    let popupClosedTicks = 0;
+
+    pollRef.current = setInterval(async () => {
+      const active = connectorRef.current;
+      if (!active || !pollRef.current) return;
+
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        stopPolling();
+        popupRef.current?.close();
+        onFailed(active);
+        return;
+      }
+
+      const connected = await checkConnectorStatus(active.id);
+      if (connected) {
+        stopPolling();
+        popupRef.current?.close();
+        setStep("done");
+        setTimeout(() => onSuccess(active), 600);
+        return;
+      }
+
+      if (popupRef.current?.closed) {
+        popupClosedTicks += 1;
+        if (popupClosedTicks >= POPUP_CLOSED_GRACE_TICKS) {
+          stopPolling();
+          onFailed(active);
+        }
+      } else {
+        setStatusText(`Waiting for ${active.name} authorization...`);
+      }
+    }, POLL_MS);
   };
 
   const handleCancel = () => {
+    if (step === "authorizing") return;
     onFailed(connector);
   };
 
@@ -72,6 +157,13 @@ export default function OAuthModal({ connector, onClose, onSuccess, onFailed }: 
                 </p>
               </div>
 
+              {errorMsg && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+                  <p className="text-xs leading-5 text-red-600 dark:text-red-400">{errorMsg}</p>
+                </div>
+              )}
+
               <div className="flex gap-2.5">
                 <button
                   onClick={handleCancel}
@@ -93,9 +185,11 @@ export default function OAuthModal({ connector, onClose, onSuccess, onFailed }: 
             <div className="flex flex-col items-center gap-3 py-4">
               <Loader2 className="h-7 w-7 animate-spin text-foreground/60" />
               <p className="text-sm text-foreground/60">
-                Redirecting to {connector.name}...
+                {statusText}
               </p>
-              <p className="text-xs text-foreground/40">Please wait, this takes a few seconds</p>
+              <p className="text-xs text-foreground/40">
+                Complete the login in the new window, then wait here
+              </p>
             </div>
           )}
 

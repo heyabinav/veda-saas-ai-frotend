@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, isMissingApiKeyError, MISSING_API_KEY_MESSAGE } from "@/lib/api";
 import { DEFAULT_SYSTEM_PROMPT } from "@/config/default-ai-settings";
 
 type ChatRequestBody = {
@@ -164,27 +164,50 @@ export async function POST(req: NextRequest) {
       console.log("DEBUG: Sending request to /api/v1/ai/generate/text with payload:", payloadBody);
     }
 
-    let response = await apiRequest("/api/v1/ai/generate/text", {
-      method: "POST",
-      headers: {
-        ...(authToken ? { Authorization: authToken } : {}),
-      },
-      body: payloadBody,
-      timeoutMs: 180000,
-    });
-
-    // Fallback: backend rejected the multipart body — retry with JSON where the
-    // image(s) are embedded as data URLs in the prompt.
-    if (!response.ok && response.status === 422 && filesArray.length > 0) {
-      console.warn("Multipart rejected (422), retrying as JSON with embedded data URLs");
-      response = await apiRequest("/api/v1/ai/generate/text", {
+    // NOTE: apiRequest() THROWS on non-OK responses (it never returns them), so
+    // every attempt below must be wrapped in try/catch — an unchecked call would
+    // skip the multipart->JSON fallback and surface the backend's raw 422
+    // message ("Invalid request data.") to the user.
+    async function callBackend(body: BodyInit): Promise<Response> {
+      return apiRequest("/api/v1/ai/generate/text", {
         method: "POST",
         headers: {
           ...(authToken ? { Authorization: authToken } : {}),
         },
-        body: buildJsonPayload(true),
+        body,
         timeoutMs: 180000,
       });
+    }
+
+    const isValidationError = (err: any) =>
+      err?.status === 422 || err?.status === 400 || err?.status === 415;
+
+    let response: Response;
+    try {
+      response = await callBackend(payloadBody);
+    } catch (error: any) {
+      // Fallback 1: the deployed backend declares /api/v1/ai/generate/text as
+      // application/json only, so multipart bodies are always rejected with 422
+      // (VALIDATION_ERROR). Retry as JSON with the image(s) embedded as data
+      // URLs inside the prompt.
+      if (filesArray.length > 0 && isValidationError(error)) {
+        console.warn("Multipart rejected, retrying as JSON with embedded data URLs");
+        try {
+          response = await callBackend(buildJsonPayload(true));
+        } catch (error2: any) {
+          // Fallback 2: the model/backend can't ingest embedded data URLs.
+          // Send the message text alone so the chat still gets a reply instead
+          // of a hard error.
+          if (isValidationError(error2)) {
+            console.warn("JSON with attachments rejected, retrying with text only");
+            response = await callBackend(buildJsonPayload(false));
+          } else {
+            throw error2;
+          }
+        }
+      } else {
+        throw error;
+      }
     }
 
     const data = await response.json();
@@ -251,7 +274,9 @@ export async function POST(req: NextRequest) {
     if (responseMode === "structured") {
       const assistantResponse = quotaExceeded
         ? "AI usage is exhausted right now. Please try again later."
-        : data?.message ?? data?.error ?? "AI Brain request failed";
+        : isMissingApiKeyError(data?.message ?? data?.error)
+          ? MISSING_API_KEY_MESSAGE
+          : data?.message ?? data?.error ?? "AI Brain request failed";
 
       return NextResponse.json({
         response: buildStructuredResponse({
@@ -289,7 +314,9 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("API Route Error:", error);
     if (responseMode === "structured") {
-      const assistantResponse = error.message ?? "Internal Server Error";
+      const assistantResponse = isMissingApiKeyError(error?.message)
+        ? MISSING_API_KEY_MESSAGE
+        : (error.message ?? "Internal Server Error");
       const errorTimestamp = new Date().toISOString();
       return NextResponse.json({
         response: buildStructuredResponse({
@@ -311,7 +338,7 @@ export async function POST(req: NextRequest) {
       });
     }
     return NextResponse.json(
-      { error: error.message ?? "Internal Server Error" },
+      { error: isMissingApiKeyError(error?.message) ? MISSING_API_KEY_MESSAGE : (error.message ?? "Internal Server Error") },
       { status: 500 }
     );
   }

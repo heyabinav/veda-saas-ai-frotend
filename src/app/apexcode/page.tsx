@@ -1579,6 +1579,7 @@ export default function ApexCodePage() {
   const [copied, setCopied] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(420);
   const [viewMode, setViewMode] = useState<"code" | "preview">("code");
+  const [codeMode, setCodeMode] = useState<"full" | "file">("full");
   const [previewKey, setPreviewKey] = useState(0);
   const [device, setDevice] = useState<"laptop" | "tablet" | "phone">("laptop");
   const isResizing = useRef(false);
@@ -1720,6 +1721,7 @@ export default function ApexCodePage() {
     setActiveFile(null);
     setOpenTabs([]);
     setViewMode("code");
+    setCodeMode("full");
     setBuildStep(1);
     setCursorPos(null);
     setGenerationError(null);
@@ -1740,9 +1742,11 @@ export default function ApexCodePage() {
     setGenerationError(null);
     setAiAnswer(null);
     setViewMode("code");
+    setCodeMode("full");
   };
 
   const openFileInTab = (path: string) => {
+    setCodeMode("file");
     setOpenTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
     setActiveFile(path);
     if (viewMode === "preview" && path.toLowerCase().endsWith(".html")) {
@@ -1777,9 +1781,16 @@ export default function ApexCodePage() {
     return getFallbackIndexHtml(activePrompt ?? "App Workspace");
   }, [generatedFiles, activePrompt]);
 
-  const displayedCode = activeFileContent;
+  const fullGeneratedCode = useMemo(() => {
+    if (generatedFiles.length === 0) return "";
+    return generatedFiles
+      .map((file, index) => `/* FILE ${index + 1}: ${file.path} */\n${file.content}`)
+      .join("\n\n");
+  }, [generatedFiles]);
 
-  const copyActiveFile = async () => {
+  const displayedCode = codeMode === "full" ? fullGeneratedCode : activeFileContent;
+
+  const copyDisplayedCode = async () => {
     try {
       await navigator.clipboard.writeText(displayedCode);
       setCopied(true);
@@ -1812,6 +1823,7 @@ export default function ApexCodePage() {
     setActiveFile(selectedFile);
     setOpenTabs(selectedFile ? [selectedFile] : []);
     setGenerationError(null);
+    setCodeMode("full");
   };
 
   const selectGeneration = (record: GenerationRecord) => {
@@ -1826,6 +1838,7 @@ export default function ApexCodePage() {
     setBuildStep(3);
     setIsGenerating(false);
     setViewMode("code");
+    setCodeMode("full");
   };
   /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      RENDER
@@ -1956,35 +1969,36 @@ export default function ApexCodePage() {
                     </div>
                   </div>
                 )}
+
+                {generationError ? (
+                  <div className="apexcode-fade-in rounded-2xl border border-red-500/20 bg-red-500/[0.07] p-3">
+                    <div className="mb-1 flex items-center gap-2">
+                      <AlertCircle className="h-3.5 w-3.5 text-red-400" />
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-red-400">
+                        Generation failed
+                      </span>
+                    </div>
+                    <p className="text-[12px] leading-6 text-[#e2e8f0]">{generationError}</p>
+                  </div>
+                ) : aiAnswer ? (
+                  <div className="apexcode-fade-in rounded-2xl border border-white/[0.08] bg-white/[0.04] p-3 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#c4b5fd]">
+                        AI answer
+                      </span>
+                      <span className="text-[10px] text-[#64748b]">Latest response</span>
+                    </div>
+                    <p className="max-h-[120px] overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-6 text-[#e2e8f0]">
+                      {aiAnswer}
+                    </p>
+                  </div>
+                ) : null}
               </div>
               <div ref={chatEndRef} />
             </div>
 
             {/* Bottom: pinned search bar */}
-            <div className="relative z-10 shrink-0 border-t border-white/[0.06] bg-[#0a0a18] p-3 shadow-[0_-10px_24px_rgba(2,6,23,0.45)] space-y-3">
-              {generationError ? (
-                <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.07] p-3">
-                  <div className="mb-1 flex items-center gap-2">
-                    <AlertCircle className="h-3.5 w-3.5 text-red-400" />
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-red-400">
-                      Generation failed
-                    </span>
-                  </div>
-                  <p className="text-[12px] leading-6 text-[#e2e8f0]">{generationError}</p>
-                </div>
-              ) : aiAnswer ? (
-                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-3 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#c4b5fd]">
-                      AI answer
-                    </span>
-                    <span className="text-[10px] text-[#64748b]">Latest response</span>
-                  </div>
-                  <p className="max-h-[120px] overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-6 text-[#e2e8f0]">
-                    {aiAnswer}
-                  </p>
-                </div>
-              ) : null}
+            <div className="relative z-10 shrink-0 border-t border-white/[0.06] bg-[#0a0a18] p-3 shadow-[0_-10px_24px_rgba(2,6,23,0.45)]">
               <ApexCodeSearchBar onGenerate={handleGenerate} showQuickHints={false} />
             </div>
           </aside>
@@ -2164,71 +2178,40 @@ export default function ApexCodePage() {
               <div className="flex-1 min-w-0 p-3 md:p-4 overflow-hidden">
                 {viewMode === "code" ? (
                   <div className="h-full flex flex-col rounded-xl overflow-hidden border border-white/[0.06] bg-[#1e1e2e]">
-                    {/* Editor tab bar with multi-file tabs */}
-                    <div className="flex items-stretch bg-[#181825] border-b border-white/[0.04] shrink-0 min-w-0">
-                      <div className="hidden sm:flex items-center gap-1.5 px-4 border-r border-white/[0.04]">
-                        <span className="h-3 w-3 rounded-full bg-[#f38ba8]/80" />
-                        <span className="h-3 w-3 rounded-full bg-[#f9e2af]/80" />
-                        <span className="h-3 w-3 rounded-full bg-[#a6e3a1]/80" />
+                    <div className="flex items-center justify-between gap-3 border-b border-white/[0.04] bg-[#181825] px-3 py-2.5 shrink-0">
+                      <div className="flex items-center gap-1 rounded-xl bg-white/[0.04] border border-white/[0.06] p-1">
+                        <button
+                          onClick={() => setCodeMode("full")}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            codeMode === "full"
+                              ? "bg-[#7c3aed]/20 text-[#c4b5fd]"
+                              : "text-[#7f849c] hover:text-[#cdd6f4]"
+                          }`}
+                        >
+                          Full
+                        </button>
+                        <button
+                          onClick={() => setCodeMode("file")}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            codeMode === "file"
+                              ? "bg-[#7c3aed]/20 text-[#c4b5fd]"
+                              : "text-[#7f849c] hover:text-[#cdd6f4]"
+                          }`}
+                        >
+                          File
+                        </button>
                       </div>
-                      <div className="flex flex-1 min-w-0 items-stretch overflow-x-auto">
-                        {openTabs.map((path) => {
-                          const TabIcon = iconForPath(path);
-                          const isTabActive = path === activeFile;
-                          return (
-                            <div
-                              key={path}
-                              onClick={() => setActiveFile(path)}
-                              title={path}
-                              className={`group flex shrink-0 cursor-pointer items-center gap-2 border-r border-white/[0.04] px-3 py-2 text-xs font-mono transition-colors ${
-                                isTabActive
-                                  ? "bg-[#1e1e2e] text-[#cdd6f4] shadow-[inset_0_2px_0_0_#a78bfa]"
-                                  : "text-[#7f849c] hover:bg-white/[0.03] hover:text-[#cdd6f4]"
-                              }`}
-                            >
-                              <TabIcon
-                                className={`h-3.5 w-3.5 shrink-0 ${
-                                  isTabActive ? "text-[#a78bfa]" : fileIconColor(path)
-                                }`}
-                              />
-                              <span className="max-w-[150px] truncate">{fileName(path)}</span>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  closeTab(path);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.stopPropagation();
-                                    closeTab(path);
-                                  }
-                                }}
-                                aria-label={`Close ${path}`}
-                                className="rounded p-0.5 text-[#585b70] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/[0.08] hover:text-[#f38ba8]"
-                              >
-                                <X className="h-3 w-3" />
-                              </span>
-                            </div>
-                          );
-                        })}
-                        {openTabs.length === 0 && !isGenerating && (
-                          <span className="px-4 py-2.5 text-[11px] font-mono text-[#585b70]">
-                            No file open — pick one from the explorer
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 px-3 shrink-0">
-                        {isGenerating && (
+
+                      <div className="flex items-center gap-2">
+                        {codeMode === "file" && isGenerating && (
                           <span className="flex items-center gap-1 text-[10px] text-[#a78bfa]">
                             <PenLine className="h-3 w-3" />
                             writing...
                           </span>
                         )}
                         <button
-                          onClick={copyActiveFile}
-                          disabled={!activeFile}
+                          onClick={copyDisplayedCode}
+                          disabled={!displayedCode}
                           className="flex items-center gap-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] px-2.5 py-1 text-[11px] font-medium text-[#a6adc8] transition-colors disabled:opacity-30"
                         >
                           {copied ? (
@@ -2239,39 +2222,148 @@ export default function ApexCodePage() {
                           ) : (
                             <>
                               <Copy className="h-3 w-3" />
-                              Copy
+                              {codeMode === "full" ? "Copy All" : "Copy"}
                             </>
                           )}
                         </button>
                       </div>
                     </div>
-                    {/* Code with line numbers */}
-                    <pre className="flex-1 overflow-auto p-4 text-[13px] leading-relaxed font-mono text-[#cdd6f4]">
-                      {displayedCode.split("\n").map((line, i) => (
-                        <div
-                          key={i}
-                          onClick={(e) => {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const col = Math.max(1, Math.round((e.clientX - rect.left) / 7.8));
-                            setCursorPos({ line: i + 1, col });
-                          }}
-                          className="flex hover:bg-white/[0.02] transition-colors cursor-text"
-                        >
-                          <span className="w-10 shrink-0 select-none text-right pr-4 text-[#585b70]">
-                            {i + 1}
-                          </span>
-                          <span className="whitespace-pre">
-                            <CodeSyntaxLine line={line} />
-                          </span>
+
+                    {codeMode === "full" ? (
+                      <div className="flex-1 overflow-auto p-4">
+                        <div className="rounded-2xl border border-white/[0.06] bg-[#181825] p-4">
+                          <div className="mb-4 flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#c4b5fd]">
+                                Full generated code
+                              </p>
+                              <p className="text-[11px] text-[#7f849c]">
+                                Every generated file is shown inside one boxed output
+                              </p>
+                            </div>
+                            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1 text-[10px] font-mono text-[#a6adc8]">
+                              {generatedFiles.length} files
+                            </span>
+                          </div>
+
+                          {generatedFiles.length > 0 ? (
+                            <div className="space-y-4">
+                              {generatedFiles.map((file, index) => (
+                                <section key={file.path} className="overflow-hidden rounded-xl border border-white/[0.05] bg-[#11111c]">
+                                  <div className="flex items-center justify-between gap-2 border-b border-white/[0.04] px-4 py-2.5">
+                                    <div className="min-w-0">
+                                      <p className="text-[9px] uppercase tracking-[0.16em] text-[#7c3aed]">
+                                        File {index + 1}
+                                      </p>
+                                      <p className="truncate font-mono text-xs text-[#cdd6f4]">
+                                        {file.path}
+                                      </p>
+                                    </div>
+                                    <span className="shrink-0 rounded-full bg-white/[0.04] px-2 py-1 text-[10px] text-[#94a3b8]">
+                                      code
+                                    </span>
+                                  </div>
+                                  <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed font-mono text-[#cdd6f4] whitespace-pre">
+                                    {file.content || "// Empty file"}
+                                  </pre>
+                                </section>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] p-6 text-sm text-[#94a3b8]">
+                              Generating full code files...
+                            </div>
+                          )}
                         </div>
-                      ))}
-                      {!activeFile && (
-                        <div className="flex items-center gap-2 text-[#585b70]">
-                          <Loader2 className="h-4 w-4 animate-spin text-[#7c3aed]" />
-                          Generating code files...
+                      </div>
+                    ) : (
+                      <>
+                        {/* Editor tab bar with multi-file tabs */}
+                        <div className="flex items-stretch bg-[#181825] border-b border-white/[0.04] shrink-0 min-w-0">
+                          <div className="hidden sm:flex items-center gap-1.5 px-4 border-r border-white/[0.04]">
+                            <span className="h-3 w-3 rounded-full bg-[#f38ba8]/80" />
+                            <span className="h-3 w-3 rounded-full bg-[#f9e2af]/80" />
+                            <span className="h-3 w-3 rounded-full bg-[#a6e3a1]/80" />
+                          </div>
+                          <div className="flex flex-1 min-w-0 items-stretch overflow-x-auto">
+                            {openTabs.map((path) => {
+                              const TabIcon = iconForPath(path);
+                              const isTabActive = path === activeFile;
+                              return (
+                                <div
+                                  key={path}
+                                  onClick={() => setActiveFile(path)}
+                                  title={path}
+                                  className={`group flex shrink-0 cursor-pointer items-center gap-2 border-r border-white/[0.04] px-3 py-2 text-xs font-mono transition-colors ${
+                                    isTabActive
+                                      ? "bg-[#1e1e2e] text-[#cdd6f4] shadow-[inset_0_2px_0_0_#a78bfa]"
+                                      : "text-[#7f849c] hover:bg-white/[0.03] hover:text-[#cdd6f4]"
+                                  }`}
+                                >
+                                  <TabIcon
+                                    className={`h-3.5 w-3.5 shrink-0 ${
+                                      isTabActive ? "text-[#a78bfa]" : fileIconColor(path)
+                                    }`}
+                                  />
+                                  <span className="max-w-[150px] truncate">{fileName(path)}</span>
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      closeTab(path);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.stopPropagation();
+                                        closeTab(path);
+                                      }
+                                    }}
+                                    aria-label={`Close ${path}`}
+                                    className="rounded p-0.5 text-[#585b70] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/[0.08] hover:text-[#f38ba8]"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            {openTabs.length === 0 && !isGenerating && (
+                              <span className="px-4 py-2.5 text-[11px] font-mono text-[#585b70]">
+                                No file open — pick one from the explorer
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </pre>
+
+                        {/* Code with line numbers */}
+                        <pre className="flex-1 overflow-auto p-4 text-[13px] leading-relaxed font-mono text-[#cdd6f4]">
+                          {displayedCode.split("\n").map((line, i) => (
+                            <div
+                              key={i}
+                              onClick={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const col = Math.max(1, Math.round((e.clientX - rect.left) / 7.8));
+                                setCursorPos({ line: i + 1, col });
+                              }}
+                              className="flex hover:bg-white/[0.02] transition-colors cursor-text"
+                            >
+                              <span className="w-10 shrink-0 select-none text-right pr-4 text-[#585b70]">
+                                {i + 1}
+                              </span>
+                              <span className="whitespace-pre">
+                                <CodeSyntaxLine line={line} />
+                              </span>
+                            </div>
+                          ))}
+                          {!activeFile && (
+                            <div className="flex items-center gap-2 text-[#585b70]">
+                              <Loader2 className="h-4 w-4 animate-spin text-[#7c3aed]" />
+                              Generating code files...
+                            </div>
+                          )}
+                        </pre>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="h-full flex flex-col rounded-xl overflow-hidden border border-white/[0.06] bg-[#0f0f23]">
@@ -2372,11 +2464,6 @@ export default function ApexCodePage() {
     </div>
   );
 }
-
-
-
-
-
 
 
 
