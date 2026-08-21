@@ -5,14 +5,14 @@ import { useMemo } from "react";
 type Token = { text: string; color: string };
 
 const COLORS = {
-  default: "#cdd6f4",
-  keyword: "#cba6f7",
-  string: "#a6e3a1",
-  comment: "#6c7086",
-  number: "#fab387",
-  tag: "#f38ba8",
-  attribute: "#89b4fa",
-  constant: "#f9e2af",
+  default: "#1f2328",
+  keyword: "#cf222e",
+  string: "#0a3069",
+  comment: "#6e7781",
+  number: "#0550ae",
+  tag: "#116329",
+  attribute: "#0550ae",
+  constant: "#953800",
 };
 
 const TOKEN_RE =

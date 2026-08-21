@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { Wallet as WalletIcon, Gift, Flame, ArrowDownLeft, ArrowUpRight, RefreshCw, TrendingUp, CheckCircle2, Info, AlertCircle } from "lucide-react";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, hasAuthSession } from "@/lib/api";
 import { Skeleton, SkeletonList } from "@/components/ui/skeleton";
 
 type PlanTier = "free" | "200" | "500" | "1000";
@@ -100,7 +100,11 @@ export default function WalletPage() {
     } catch (err: any) {
       console.error("Wallet load failed:", err);
       if (err?.status === 401 || err?.message?.toLowerCase().includes("authentication required")) {
-        router.replace(`/login?redirectTo=${encodeURIComponent("/wallet")}`);
+        if (!hasAuthSession()) {
+          router.replace(`/login?redirectTo=${encodeURIComponent("/wallet")}`);
+          return;
+        }
+        setError("Could not load wallet data. Please try again.");
         return;
       }
       setError(err?.message || "Failed to load wallet data.");
@@ -126,7 +130,11 @@ export default function WalletPage() {
       await loadAll();
     } catch (err: any) {
       if (err?.status === 401 || err?.message?.toLowerCase().includes("authentication required")) {
-        router.replace(`/login?redirectTo=${encodeURIComponent("/wallet")}`);
+        if (!hasAuthSession()) {
+          router.replace(`/login?redirectTo=${encodeURIComponent("/wallet")}`);
+          return;
+        }
+        setRewardMsg({ text: "Could not claim reward. Please try again.", kind: "error" });
         return;
       }
       const alreadyClaimed = err?.message?.includes("already") || err?.message?.includes("claimed");

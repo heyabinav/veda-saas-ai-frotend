@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_ROUTES = [
-  "/",
   "/login",
   "/signup",
   "/forgot-password",
@@ -48,20 +47,19 @@ export async function middleware(request: NextRequest) {
     Boolean(supabaseToken && isTokenUnexpired(supabaseToken));
 
   // Logged-in users should not bounce endlessly on public auth routes.
-  // Redirect them to the app shell instead of redirecting to the same public route.
+  // Redirect them to the app shell (or back to their intended destination)
+  // instead of redirecting to the same public route.
   if (isLoggedIn && publicRoute) {
-    const targetPath = pathname === "/login" || pathname === "/signup" || pathname === "/forgot-password" || pathname === "/reset-password" || pathname === "/auth/callback"
-      ? "/dashboard"
-      : "/";
+    const redirectTo = request.nextUrl.searchParams.get("redirectTo");
+    const targetPath =
+      redirectTo && redirectTo.startsWith("/") && !redirectTo.startsWith("//")
+        ? redirectTo
+        : "/dashboard";
 
-    if (pathname !== targetPath) {
-      const targetUrl = request.nextUrl.clone();
-      targetUrl.pathname = targetPath;
-      targetUrl.search = "";
-      return NextResponse.redirect(targetUrl);
-    }
-
-    return NextResponse.next({ request });
+    const targetUrl = request.nextUrl.clone();
+    targetUrl.pathname = targetPath;
+    targetUrl.search = "";
+    return NextResponse.redirect(targetUrl);
   }
 
   // Not logged in on a protected route → force login

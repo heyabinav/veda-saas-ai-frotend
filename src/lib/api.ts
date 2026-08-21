@@ -40,6 +40,11 @@ export function toFriendlyError(message: string | undefined | null): string {
   return isMissingApiKeyError(message) ? MISSING_API_KEY_MESSAGE : message || "Request failed";
 }
 
+export function hasAuthSession(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie.split("; ").some((c) => c.startsWith("auth_token="));
+}
+
 function isTextResponse(contentType: string) {
   const normalized = contentType.toLowerCase();
   return (
@@ -195,32 +200,27 @@ export async function apiRequest(endpoint: string, options: ApiRequestOptions = 
   try {
     let response = await doFetch(buildHeaders(token, apiKey));
 
+    console.log("[apiRequest] Response:", {
+      status: response.status,
+      statusText: response.statusText,
+      url: targetUrl,
+    });
+
     // A 401 with a token attached usually means a stale/expired token. Try to
-    // refresh the Supabase session once and retry with the fresh token. Only if
-    // that fails do we clear the stale credentials, so the app can re-login.
+    // refresh the Supabase session once and retry with the fresh token. If the
+    // refresh fails, the stored session (auth_token cookie) is intentionally
+    // kept so the user stays signed in instead of being bounced to /login.
     if (response.status === 401 && attempt === 0 && token) {
       attempt = 1;
-      let refreshed = false;
       try {
         const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
         const refreshedToken = refreshData.session?.access_token;
         if (!refreshError && refreshedToken) {
           token = refreshedToken;
-          refreshed = true;
           response = await doFetch(buildHeaders(token, apiKey));
         }
       } catch {
         // ignore refresh errors — fall through to the 401 error path below
-      }
-
-      if (!refreshed && typeof document !== "undefined") {
-        try {
-          document.cookie = "auth_token=; path=/; max-age=0";
-          localStorage.removeItem("accessToken");
-          localStorage.removeItem("token");
-        } catch {
-          // ignore cleanup errors
-        }
       }
     }
 

@@ -82,6 +82,7 @@ const addMenuItems: AddMenuItem[] = [
 interface ApexCodeSearchBarProps {
   onGenerate?: (prompt: string, model: string) => void;
   showQuickHints?: boolean;
+  docked?: boolean;
 }
 
 type AttachedFile = {
@@ -121,7 +122,7 @@ function getFileIcon(file: AttachedFile): React.ReactNode {
   return <File className="h-5 w-5 text-foreground/70" />;
 }
 
-export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }: ApexCodeSearchBarProps) {
+export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true, docked = false }: ApexCodeSearchBarProps) {
   const router = useRouter();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
@@ -370,15 +371,15 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`relative w-full max-w-[720px] rounded-[26px] border border-slate-900/10 bg-[#f8fafc] transition-all duration-300 ${
+        className={`relative w-full ${docked ? "" : "max-w-[720px]"} rounded-2xl border border-[#e2e8f0] bg-white transition-all duration-300 ${
           isDragging
-            ? "border-blue-500/60 bg-blue-50/30 shadow-[0_0_40px_rgba(66,133,244,0.2)]"
+            ? "border-[#4f46e5]/60 bg-white shadow-[0_0_40px_rgba(79,70,229,0.15)]"
             : isFocused
-              ? "border-blue-500/50 shadow-[0_0_30px_rgba(66,133,244,0.15)]"
-              : "shadow-[0_4px_20px_rgba(0,0,0,0.08)]"
+              ? "border-[#4f46e5]/50 shadow-[0_0_30px_rgba(79,70,229,0.12)]"
+              : "shadow-[0_4px_20px_rgba(15,23,42,0.08)]"
         }`}
       >
-        <div className="relative w-full rounded-[24.5px] bg-[#f8fafc] p-3 md:p-4 flex flex-col justify-between min-h-[110px] md:min-h-[120px] border border-black/5">
+        <div className="relative w-full rounded-2xl bg-white p-3 md:p-4 flex flex-col justify-between min-h-[110px] md:min-h-[120px] border border-[#f2f4f6]">
           {/* Text Area Input */}
           <div className="flex-1 w-full min-w-0 mb-3">
             {/* Attached file icons */}
@@ -388,10 +389,10 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                   <div
                     key={file.id}
                     title={`${file.name} - click to view`}
-                    className={`relative rounded-2xl border border-black/10 flex items-center justify-center overflow-visible cursor-pointer group hover:border-black/20 transition-colors ${
+                    className={`relative rounded-2xl border border-[#e2e8f0] flex items-center justify-center overflow-visible cursor-pointer group hover:border-[#c7c4d8] transition-colors ${
                       file.isImage || file.isVideo
                         ? "h-14 w-24 overflow-hidden"
-                        : "h-11 w-11 bg-black/5"
+                        : "h-11 w-11 bg-[#f2f4f6]"
                     }`}
                     onClick={() => setPreviewFile(file)}
                   >
@@ -418,7 +419,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                         e.stopPropagation();
                         removeFile(file.id);
                       }}
-                      className="absolute -top-1.5 -right-1.5 rounded-full bg-white border border-black/10 p-0.5 text-foreground/50 hover:text-red-500 shadow-sm transition-colors"
+                      className="absolute -top-1.5 -right-1.5 rounded-full bg-white border border-[#e2e8f0] p-0.5 text-[#464555] hover:text-red-500 shadow-sm transition-colors"
                       aria-label={`Remove ${file.name}`}
                     >
                       <X className="h-3 w-3" />
@@ -437,17 +438,17 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
               onKeyDown={handleKeyDown}
               placeholder="Describe an app and let ApexCode do the rest..."
               rows={1}
-              className="w-full bg-transparent text-foreground text-base md:text-[17px] font-normal leading-relaxed placeholder:text-foreground/40 focus:outline-none resize-none min-h-[40px] font-sans"
+              className="w-full bg-transparent text-[#191c1e] text-base md:text-[17px] font-normal leading-relaxed placeholder:text-[#464555]/50 focus:outline-none resize-none min-h-[40px] font-sans"
               aria-label="Describe an app prompt"
             />
 
             {/* Drag & Drop Overlay */}
             {isDragging && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[24.5px] bg-white/85 backdrop-blur-sm border-2 border-dashed border-blue-500/60 pointer-events-none">
-                <div className="flex flex-col items-center gap-2 text-blue-600">
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/90 backdrop-blur-sm border-2 border-dashed border-[#4f46e5]/60 pointer-events-none">
+                <div className="flex flex-col items-center gap-2 text-[#3525cd]">
                   <UploadCloud className="h-8 w-8" />
                   <span className="text-sm font-semibold">Drop files here</span>
-                  <span className="text-xs text-blue-500/70">Images, PDFs, DOCX & more</span>
+                  <span className="text-xs text-[#3525cd]/70">Images, PDFs, DOCX & more</span>
                 </div>
               </div>
             )}
@@ -464,7 +465,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                   type="button"
                   onClick={() => setAddMenuOpen(!addMenuOpen)}
                   title="Add attachment"
-                  className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-black/5 hover:bg-black/10 text-foreground/70 hover:text-foreground border border-black/5 flex items-center justify-center transition-colors"
+                  className="h-9 w-9 md:h-10 md:w-10 rounded-full bg-[#eceef0] hover:bg-[#e0e3e5] text-[#464555] hover:text-[#191c1e] border border-transparent flex items-center justify-center transition-colors"
                 >
                   <motion.div animate={{ rotate: addMenuOpen ? 45 : 0 }} transition={{ duration: 0.2 }}>
                     <Plus className="h-4 w-4 md:h-5 md:w-5" />
@@ -484,14 +485,14 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 8 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute left-0 bottom-12 z-50 w-52 overflow-hidden rounded-2xl bg-white border border-black/10 p-1.5 shadow-2xl backdrop-blur-xl"
+                        className="absolute left-0 bottom-12 z-50 w-52 overflow-hidden rounded-2xl bg-white border border-[#e2e8f0] p-1.5 shadow-[0_8px_32px_rgba(15,23,42,0.12)] backdrop-blur-xl"
                       >
                         {addMenuItems.map((item) => (
                           <button
                             key={item.label}
                             type="button"
                             onClick={() => handleAddMenuClick(item)}
-                            className="flex w-full items-center gap-3 px-3 py-2 text-xs md:text-sm font-medium text-foreground/80 transition-colors hover:bg-black/5 hover:text-foreground rounded-xl"
+                            className="flex w-full items-center gap-3 px-3 py-2 text-xs md:text-sm font-medium text-[#191c1e]/80 transition-colors hover:bg-[#f2f4f6] hover:text-[#191c1e] rounded-xl"
                           >
                             <span>{item.icon}</span>
                             {item.label}
@@ -509,7 +510,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                   type="button"
                   onClick={() => setModelOpen(!modelOpen)}
                   title="Select AI model"
-                  className="flex items-center gap-1.5 rounded-full bg-black/5 hover:bg-black/10 text-foreground/70 hover:text-foreground border border-black/5 px-2.5 py-2 md:px-3 md:py-2.5 transition-colors"
+                  className="flex items-center gap-1.5 rounded-full bg-[#eceef0] hover:bg-[#e0e3e5] text-[#464555] hover:text-[#191c1e] border border-transparent px-2.5 py-2 md:px-3 md:py-2.5 transition-colors"
                 >
                   <span className="hidden sm:inline text-xs md:text-sm font-semibold truncate max-w-[90px]">
                     {model}
@@ -531,9 +532,9 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 8 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute left-0 bottom-12 z-50 w-56 overflow-hidden rounded-2xl bg-white border border-black/10 p-1.5 shadow-2xl"
+                        className="absolute left-0 bottom-12 z-50 w-56 overflow-hidden rounded-2xl bg-white border border-[#e2e8f0] p-1.5 shadow-[0_8px_32px_rgba(15,23,42,0.12)]"
                       >
-                        <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-foreground/40">
+                        <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">
                           Model
                         </p>
                         {APEXCODE_MODELS.map((m) => {
@@ -552,22 +553,22 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                               }}
                               className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs md:text-sm font-medium transition-colors ${
                                 model === m.name && allowed
-                                  ? "bg-blue-500/10 text-blue-600"
-                                  : "text-foreground/80 hover:bg-black/5 hover:text-foreground"
+                                  ? "bg-[#4f46e5]/10 text-[#3525cd]"
+                                  : "text-[#191c1e]/80 hover:bg-[#f2f4f6] hover:text-[#191c1e]"
                               }`}
                             >
                               <span className="flex min-w-0 items-center gap-2">
                                 <span className="truncate">{m.name}</span>
                                 {m.name === "ApexCode 3 (Apex 3.0)" && (
-                                  <span className="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-600">
+                                  <span className="shrink-0 rounded-full bg-[#4f46e5]/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#3525cd]">
                                     New
                                   </span>
                                 )}
                               </span>
                               {model === m.name && allowed ? (
-                                <Check className="h-4 w-4 shrink-0 text-blue-600" />
+                                <Check className="h-4 w-4 shrink-0 text-[#3525cd]" />
                               ) : allowed ? (
-                                <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-foreground/35">
+                                <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-[#64748b]">
                                   {m.plan}
                                 </span>
                               ) : (
@@ -602,19 +603,19 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                 type="button"
                 onClick={handleFeelingLucky}
                 disabled={isGenerating}
-                className="flex items-center gap-2 px-4 py-2 md:px-5 md:py-2.5 rounded-full bg-white border border-slate-900/10 text-slate-900 text-xs md:text-sm font-semibold transition-all hover:scale-[1.02] hover:border-blue-500/50 hover:text-blue-600 hover:shadow-md hover:shadow-blue-500/10 shadow-sm active:scale-95"
+                className="flex items-center gap-2 px-4 py-2 md:px-5 md:py-2.5 rounded-full bg-[#3525cd] text-white text-xs md:text-sm font-semibold transition-all hover:scale-[1.02] hover:bg-[#4d44e3] shadow-sm active:scale-95"
               >
                 {isGenerating ? (
                   <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                   >
-                    <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+                    <Loader2 className="h-4 w-4 text-white animate-spin" />
                   </motion.div>
                 ) : (
                   <>
                     <span>Build</span>
-                    <ArrowRight className="h-3.5 w-3.5 text-blue-600" />
+                    <ArrowRight className="h-3.5 w-3.5 text-white" />
                   </>
                 )}
               </button>
@@ -626,7 +627,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
       {/* Quick Hint Chips */}
       {showQuickHints && (
         <div className="mt-4 w-full">
-          <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45 md:text-[12px]">
+          <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-[#64748b] md:text-[12px]">
             Try a starter prompt
           </p>
           <div className="flex w-full gap-2 overflow-x-auto pb-1 md:flex-wrap md:justify-center md:overflow-visible md:pb-0">
@@ -638,7 +639,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                   setValue(hint);
                   if (textareaRef.current) textareaRef.current.focus();
                 }}
-                className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-[12px] font-medium text-white/75 transition-all hover:border-blue-400/40 hover:bg-blue-500/10 hover:text-white hover:shadow-[0_0_16px_rgba(59,130,246,0.12)]"
+                className="shrink-0 rounded-full border border-[#e2e8f0] bg-white px-3.5 py-1.5 text-[12px] font-medium text-[#464555] transition-all hover:border-[#4f46e5]/40 hover:bg-[#4f46e5]/5 hover:text-[#3525cd]"
               >
                 {hint}
               </button>
@@ -665,36 +666,36 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 12 }}
               transition={{ duration: 0.15 }}
-              className="relative w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden rounded-2xl bg-white border border-black/10"
+              className="relative w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden rounded-2xl bg-white border border-[#e2e8f0]"
             >
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-black/10 bg-black/[0.02]">
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#e2e8f0] bg-[#f7f9fb]">
                 <div className="flex items-center gap-2 min-w-0">
-                  <NotebookText className="h-4 w-4 text-violet-500 shrink-0" />
-                  <span className="text-sm font-semibold text-foreground truncate">
+                  <NotebookText className="h-4 w-4 text-[#4f46e5] shrink-0" />
+                  <span className="text-sm font-semibold text-[#191c1e] truncate">
                     {previewFile.name}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setPreviewFile(null)}
-                  className="rounded-full p-1.5 text-foreground/50 hover:text-red-500 hover:bg-black/5 transition-colors"
+                  className="rounded-full p-1.5 text-[#464555] hover:text-red-500 hover:bg-[#f2f4f6] transition-colors"
                   aria-label="Close preview"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="flex-1 min-h-0 overflow-auto flex items-start justify-start bg-black/[0.02] p-4">
+              <div className="flex-1 min-h-0 overflow-auto flex items-start justify-start bg-[#f7f9fb] p-4">
                 {previewFile.txtContent ? (
-                  <pre className="w-full h-full min-h-0 overflow-auto px-4 py-3 text-[13px] leading-relaxed text-foreground/80 font-mono whitespace-pre-wrap break-words">
+                  <pre className="w-full h-full min-h-0 overflow-auto px-4 py-3 text-[13px] leading-relaxed text-[#191c1e]/80 font-mono whitespace-pre-wrap break-words">
                     {previewFile.txtContent}
                   </pre>
                 ) : previewFile.isImage && previewFile.url ? (
                   <div className="flex flex-col items-center gap-2 w-full">
-                    <div className="flex items-center gap-2 rounded-xl bg-black/[0.03] border border-black/10 px-3 py-2">
-                      <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-foreground/50">
+                    <div className="flex items-center gap-2 rounded-xl bg-white border border-[#e2e8f0] px-3 py-2">
+                      <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-[#464555]">
                         Size
                       </span>
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-foreground/70">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-[#191c1e]/70">
                         Length
                         <input
                           type="number"
@@ -709,11 +710,11 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                               handleImgWidthChange(Math.max(1, parseInt(v) || 1));
                             }
                           }}
-                          className="w-16 rounded-md border border-black/10 px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-black/20"
+                          className="w-16 rounded-md border border-[#e2e8f0] px-1.5 py-0.5 text-xs text-[#191c1e] focus:outline-none focus:border-[#4f46e5]/60"
                         />
                         px
                       </label>
-                      <label className="flex items-center gap-1.5 text-xs font-medium text-foreground/70">
+                      <label className="flex items-center gap-1.5 text-xs font-medium text-[#191c1e]/70">
                         Breadth
                         <input
                           type="number"
@@ -728,7 +729,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                               handleImgHeightChange(Math.max(1, parseInt(v) || 1));
                             }
                           }}
-                          className="w-16 rounded-md border border-black/10 px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-black/20"
+                          className="w-16 rounded-md border border-[#e2e8f0] px-1.5 py-0.5 text-xs text-[#191c1e] focus:outline-none focus:border-[#4f46e5]/60"
                         />
                         px
                       </label>
@@ -738,8 +739,8 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                         title={keepRatio ? "Locked: aspect ratio maintained" : "Unlocked: free resize"}
                         className={`rounded-md p-1.5 transition-colors ${
                           keepRatio
-                            ? "bg-black/10 text-foreground"
-                            : "text-foreground/40 hover:text-foreground"
+                            ? "bg-[#4f46e5]/10 text-[#3525cd]"
+                            : "text-[#464555] hover:text-[#191c1e]"
                         }`}
                       >
                         {keepRatio ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
@@ -747,7 +748,7 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                       <button
                         type="button"
                         onClick={resetImgSize}
-                        className="rounded-md px-2 py-1 text-xs font-medium text-foreground/50 hover:text-foreground hover:bg-black/5 transition-colors"
+                        className="rounded-md px-2 py-1 text-xs font-medium text-[#464555] hover:text-[#191c1e] hover:bg-[#f2f4f6] transition-colors"
                       >
                         Reset
                       </button>
@@ -788,18 +789,18 @@ export default function ApexCodeSearchBar({ onGenerate, showQuickHints = true }:
                   />
                 ) : (
                   <div className="text-center py-8 w-full">
-                    <File className="h-12 w-12 mx-auto text-foreground/30" />
-                    <p className="mt-3 text-sm font-medium text-foreground break-all px-6">
+                    <File className="h-12 w-12 mx-auto text-[#464555]/30" />
+                    <p className="mt-3 text-sm font-medium text-[#191c1e] break-all px-6">
                       {previewFile.name}
                     </p>
-                    <p className="mt-1 text-xs text-foreground/50">
+                    <p className="mt-1 text-xs text-[#464555]">
                       {previewFile.fileType || "Unknown type"} ·{" "}
                       {previewFile.fileSize ? Math.max(1, Math.round(previewFile.fileSize / 1024)) : 0} KB
                     </p>
                     <a
                       href={previewFile.url}
                       download={previewFile.name}
-                      className="mt-4 inline-flex items-center gap-2 rounded-full bg-black px-4 py-2 text-sm text-white hover:opacity-80 transition-opacity"
+                      className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#3525cd] px-4 py-2 text-sm text-white hover:bg-[#4d44e3] transition-colors"
                     >
                       <Download className="h-4 w-4" /> Download
                     </a>

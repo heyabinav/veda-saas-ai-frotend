@@ -104,16 +104,18 @@ export default function PPTGenerator() {
     if (!topic.trim()) return;
     setIsGenerating(true);
     try {
-      const response = await apiRequest("/api/v1/ai/generate/ppt", {
+      // Use the legacy endpoint path from config
+      const requestBody = {
+        topic: topic.trim(),
+        slides: slideCount,
+        theme: theme,
+      };
+      console.log("[PPT Generator] Sending request:", requestBody);
+      
+      const response = await apiRequest("/ai/generate/ppt", {
         method: "POST",
         timeoutMs: 120000,
-        body: JSON.stringify({
-          topic,
-          slides: slideCount,
-          theme,
-          tier: 1,
-          provider: "auto",
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const contentType = response.headers.get("content-type") || "";
@@ -143,8 +145,11 @@ export default function PPTGenerator() {
       setGeneratedPPT(true);
       setPptUrl(pptUrl);
       saveToHistory(topic, slideCount, theme);
-    } catch (error) {
+    } catch (error: any) {
       console.error("PPT generation failed:", error);
+      // Show user-friendly error
+      const message = error?.message || "Failed to generate presentation";
+      alert(message);
       throw error;
     } finally {
       setIsGenerating(false);

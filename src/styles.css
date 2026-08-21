@@ -476,6 +476,19 @@ html {
   30% { transform: translateY(-4px); opacity: 1; }
 }
 
+.font-geist {
+  font-family: 'Geist', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .typing-dot {
   width: 6px;
   height: 6px;

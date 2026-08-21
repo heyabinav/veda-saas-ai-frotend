@@ -8,7 +8,7 @@ async function handleProxy(req: NextRequest, { params }: { params: Promise<{ pat
   const resolvedParams = await params;
   const pathSegments = resolvedParams.path;
   const fullPath = pathSegments.join("/");
-  const targetPath = (fullPath.startsWith("api/") || fullPath.startsWith("auth/") || fullPath.startsWith("connectors/") || fullPath === "ready" || fullPath === "health")
+  const targetPath = (fullPath.startsWith("api/") || fullPath.startsWith("auth/") || fullPath.startsWith("connectors/") || fullPath.startsWith("ai/") || fullPath === "ready" || fullPath === "health")
     ? fullPath
     : `api/${fullPath}`;
   
